@@ -70,6 +70,7 @@ class OpenGridWorld:
         viral_infection_radius: int = 2,
         viral_infection_probability: float = 0.3,
         viral_energy_multiplier: float = 2.0,
+        parent_authored_genome: bool = False,
     ):
         # grid/world params
         # ---------------------------
@@ -98,6 +99,7 @@ class OpenGridWorld:
         self.viral_infection_probability = viral_infection_probability
         self.viral_energy_multiplier = viral_energy_multiplier
         self.reproduction_allowed = reproduction_allowed
+        self.parent_authored_genome = parent_authored_genome
         self.food_mechanism = food_mechanism
         if not self.food_mechanism:
             self.dead_agent_food = "none"
@@ -570,6 +572,10 @@ class OpenGridWorld:
                         "child_tag": new_agent_idx,
                         "child_type": "text",
                     }
+                    if self.parent_authored_genome:
+                        reprod_info["offspring_genome"] = str(
+                            action_params.get("offspring_genome", "")
+                        )
                     if already_present:
                         reprod_info["note"] = (
                             f"An agent with name {action_params.get('name')} was already present. So Offspring has been named: {offspring_name}"
@@ -1649,6 +1655,8 @@ class OpenGridWorld:
                 params = {
                     "name": action["params"]["name"],
                 }
+            if self.parent_authored_genome:
+                params["offspring_genome"] = action["params"]["offspring_genome"]
             available_actions["reproduce"] = {
                 "description": action["description"].format(
                     reproduction_cost=str(self.reproduction_cost)

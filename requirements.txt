@@ -28,3 +28,4 @@ joblib
 pydot
 graphviz
 mplcursors
+litellm

@@ -95,6 +95,10 @@ class EnvConfig:
         default=True, metadata={"help": "Enable energy mechanic"}
     )
     food_spawn_rate: int = field(default=1, metadata={"help": "Food spawn per step"})
+    genome_mutation_rate: float = field(
+        default=0.5,
+        metadata={"help": "Per-gene mutation rate applied to the child genome on reproduction"},
+    )
     food_zones: int | List[Tuple[int, int]] | None = field(
         default=None,
         metadata={

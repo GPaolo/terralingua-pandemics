@@ -11,6 +11,8 @@ class Genome(BaseGenome):
     It is based on the HEXACO + Interpersonal Circumplex psychology theory for the personality traits.
     """
 
+    genome_type = "ocean_5"
+
     honesty: float = field(
         default=0.0,
         metadata={

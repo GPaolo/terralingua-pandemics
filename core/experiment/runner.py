@@ -22,6 +22,7 @@ from core.experiment.config import ExperimentConfig
 from core.experiment.llm_router import LLMRouter
 from core.genome.no_traits import Genome as NoTraitsGenome
 from core.genome.ocean_5 import Genome as Ocean5Genome
+from core.genome.sentence_directed import Genome as SentenceDirectedGenome
 from core.utils.generic import create_video
 from core.utils.llm_utils import select_with_retry
 
@@ -69,6 +70,8 @@ class SimulationRunner:
             return Ocean5Genome
         elif self.params.agent.genome == "no_traits":
             return NoTraitsGenome
+        elif self.params.agent.genome == "sentence_directed":
+            return SentenceDirectedGenome
         else:
             raise ValueError(f"Unsupported genome type: {self.params.agent.genome}")
 
@@ -101,6 +104,7 @@ class SimulationRunner:
             viral_infection_radius=self.params.env.viral_infection_radius,
             viral_infection_probability=self.params.env.viral_infection_probability,
             viral_energy_multiplier=self.params.env.viral_energy_multiplier,
+            parent_authored_genome=self.params.agent.genome == "sentence_directed",
         )
 
     def _init_state(self):
@@ -285,13 +289,33 @@ class SimulationRunner:
                     parent = self.agents[agent_tag]
                     child_name = info["reproduction"]["child_name"]
                     child_tag = info["reproduction"]["child_tag"]
+                    parent_b_tag = info["reproduction"].get("parent_b_tag")
+
+                    # If reproduction is two-parent, crossover the genomes of both parents to create the child genome.
+                    if parent_b_tag is not None and parent_b_tag in self.agents:
+                        parent_b = self.agents[parent_b_tag]
+                        child_genome = parent.genome.crossover(parent_b.genome)  # type: ignore
+
+                    # If reproduction is solo, mutate the genome of the parent.
+                    # In the case of sentence_directed, it's the parent that provides the genome
+                    elif parent.genome.genome_type == "sentence_directed":
+                        offspring_genome_str = str(
+                            info["reproduction"].get("offspring_genome", "").strip()
+                        )
+                        child_genome = SentenceDirectedGenome(
+                            sentence=offspring_genome_str or parent.genome.sentence  # type: ignore
+                        )
+                    else:
+                        child_genome = parent.genome.mutate(
+                            rate=self.params.env.genome_mutation_rate
+                        )
 
                     # TODO add ability to reproduce human agents
                     if info["reproduction"]["child_type"] == "text":
                         self.agents[child_tag] = LLMAgent(
                             agent_name=child_name,
                             agent_tag=child_tag,
-                            genome=parent.genome.mutate(),
+                            genome=child_genome,
                             log_dir=self.exp_logdir,
                             obs_style=self.params.agent.obs_style,
                             max_history=self.params.agent.max_history,
