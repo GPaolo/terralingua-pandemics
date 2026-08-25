@@ -94,6 +94,13 @@ class SimulationRunner:
             food_mechanism=self.params.env.food_mechanism,
             dead_agent_food=self.params.env.dead_agent_food,
             inert_artifacts=self.params.env.inert_artifacts,
+            viral_init_infected=self.params.env.viral_init_infected,
+            viral_outbreak_step=self.params.env.viral_outbreak_step,
+            viral_lifespan=self.params.env.viral_lifespan,
+            viral_dropped_lifespan=self.params.env.viral_dropped_lifespan,
+            viral_infection_radius=self.params.env.viral_infection_radius,
+            viral_infection_probability=self.params.env.viral_infection_probability,
+            viral_energy_multiplier=self.params.env.viral_energy_multiplier,
         )
 
     def _init_state(self):

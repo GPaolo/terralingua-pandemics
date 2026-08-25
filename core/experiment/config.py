@@ -124,6 +124,44 @@ class EnvConfig:
     static_food: bool = field(
         default=False, metadata={"help": "Food always spawns in same positions"}
     )
+    viral_dropped_lifespan: int = field(
+        default=20,
+        metadata={
+            "help": "Steps a viral artifact dropped at its host's death survives on the map (-1 = forever)"
+        },
+    )
+    viral_energy_multiplier: float = field(
+        default=2.0,
+        metadata={
+            "help": "Energy consumption multiplier for each viral artifact hosted (K)"
+        },
+    )
+    viral_infection_probability: float = field(
+        default=0.3,
+        metadata={
+            "help": "Per-step probability that a viral artifact spreads to a nearby agent"
+        },
+    )
+    viral_infection_radius: int = field(
+        default=2,
+        metadata={
+            "help": "Max distance in cells at which viral artifacts can spread"
+        },
+    )
+    viral_init_infected: int = field(
+        default=0,
+        metadata={
+            "help": "Agents infected at the viral outbreak (0 disables viral artifacts)"
+        },
+    )
+    viral_lifespan: int = field(
+        default=-1,
+        metadata={"help": "Steps a viral infection lasts in an agent's inventory (-1 = forever)"},
+    )
+    viral_outbreak_step: int = field(
+        default=0,
+        metadata={"help": "Timestep at which the viral outbreak happens"},
+    )
     vision_radius: int = field(default=6, metadata={"help": "Vision radius"})
 
     def __post_init__(self):
@@ -133,6 +171,19 @@ class EnvConfig:
 
         assert self.min_agents <= self.init_agents, (
             "min_agents cannot be greater than init_agents"
+        )
+
+        assert 0.0 <= self.viral_infection_probability <= 1.0, (
+            "viral_infection_probability must be in [0, 1]"
+        )
+        assert self.viral_infection_radius >= 0, (
+            "viral_infection_radius cannot be negative"
+        )
+        assert self.viral_energy_multiplier > 0, (
+            "viral_energy_multiplier must be positive"
+        )
+        assert self.viral_init_infected >= 0, (
+            "viral_init_infected cannot be negative"
         )
 
 
