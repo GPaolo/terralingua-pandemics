@@ -124,7 +124,7 @@ Seeded artifacts are ordinary text artifacts (agents can read, pick up, modify, 
 
 ### Viral artifacts
 
-A virus-like artifact type for epidemic experiments: it has no content, cannot be created or acted on by agents, spreads probabilistically to nearby agents, multiplies its host's energy consumption, and drops on the map for a limited time when its host dies. Enable it by setting `--viral_init_infected` > 0; see `run_viral_experiment.sh` for an annotated example and the `viral_*` flags in `python main.py --help` for all knobs (outbreak step, infection radius/probability, infection and corpse lifespans, energy multiplier). Every transmission is logged as a `VIRAL_INFECTION` event, from which the empirical R0 can be computed with `analysis_scripts/compute_r0.py`.
+A virus-like artifact type for epidemic experiments: it has no content, cannot be created or acted on by agents, spreads probabilistically by contact — by default to agents standing in one of the 8 directly adjacent cells, diagonals and grid wraparound included — multiplies its host's energy consumption, and drops on the map for a limited time when its host dies. Enable it by setting `--viral_init_infected` > 0; widen the transmission range with `--viral_infection_radius` if you want an airborne virus instead. See `run_viral_experiment.sh` for an annotated example and the `viral_*` flags in `python main.py --help` for all knobs (outbreak step, infection radius/probability, infection and corpse lifespans, energy multiplier). Every transmission is logged as a `VIRAL_INFECTION` event, from which the empirical R0 can be computed with `analysis_scripts/compute_r0.py`.
 
 ### Reproducing paper experiments
 

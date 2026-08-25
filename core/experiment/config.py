@@ -154,9 +154,9 @@ class EnvConfig:
         },
     )
     viral_infection_radius: int = field(
-        default=2,
+        default=1,
         metadata={
-            "help": "Max distance in cells at which viral artifacts can spread"
+            "help": "Max cell distance at which viral artifacts spread (1 = contact)"
         },
     )
     viral_init_infected: int = field(
