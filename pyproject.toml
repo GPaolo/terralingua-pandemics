@@ -41,20 +41,26 @@ dependencies = [
     "graphviz",
     "mplcursors",
     "litellm",
+    "fastapi",
+    "uvicorn",
 ]
 
 [tool.setuptools]
 package-dir = {"" = "."}
 py-modules = ["main"]
 
+[tool.setuptools.package-data]
+viz = ["static/*"]
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["core*", "analysis_scripts*"]
+include = ["core*", "analysis_scripts*", "viz*"]
 exclude = ["logs*", "plots*", "*.egg-info", "__pycache__"]
 
 
 [project.scripts]
 open-gridworld-run = "main:main"
+terralingua-ui = "viz.server:main"
 
 [tool.ruff]
 # Format all Python files

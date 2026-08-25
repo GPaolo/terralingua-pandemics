@@ -211,6 +211,12 @@ class RunConfig:
     live_render: bool = field(
         default=False, metadata={"help": "Render simulation live"}
     )
+    log_world_state: bool = field(
+        default=True,
+        metadata={
+            "help": "Log per-step world state to world_state.jsonl (used by the dashboard)"
+        },
+    )
     max_parallel_workers: int = field(
         default=20, metadata={"help": "Max worker threads"}
     )

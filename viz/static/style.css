@@ -1,0 +1,345 @@
+/* TerraLingua dashboard.
+   Colors come from the validated data-viz reference palette: categorical slots in
+   fixed order (never cycled), a single-hue ramp for food magnitude, and reserved
+   status colors that always ship with an icon or label rather than carrying
+   meaning on their own. */
+
+:root {
+  color-scheme: dark;
+
+  --plane: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #212120;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --ink-muted: #898781;
+  --grid-line: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+
+  /* Categorical slots, fixed order. */
+  --s1: #3987e5; /* blue   */
+  --s2: #d95926; /* orange */
+  --s3: #199e70; /* aqua   */
+  --s4: #c98500; /* yellow */
+  --s5: #d55181; /* magenta*/
+  --s6: #9085e9; /* violet */
+
+  /* Reserved status colors -- always paired with an icon or label. */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+
+  /* Food: one hue, light -> dark. Kept off the categorical order so a being is
+     never mistaken for the ground it stands on. */
+  --food-0: #14301f;
+  --food-1: #1d5636;
+  --food-2: #237a48;
+  --food-3: #29a05b;
+  --food-4: #47c47a;
+
+  --radius: 8px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --plane: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f2f1ec;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-muted: #898781;
+  --grid-line: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --s4: #eda100;
+  --s5: #e87ba4;
+  --s6: #4a3aa7;
+  --food-0: #e8f3ea;
+  --food-1: #b6ddc3;
+  --food-2: #74c194;
+  --food-3: #2f9e5c;
+  --food-4: #0d6b36;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+button, select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+button:hover, select:hover { border-color: var(--ink-muted); }
+button:disabled { opacity: 0.4; cursor: default; }
+
+/* ---------- layout ---------- */
+
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+  gap: 10px;
+  padding: 10px;
+}
+
+header.bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+
+.title { font-weight: 620; letter-spacing: -0.01em; }
+.subtitle { color: var(--ink-muted); font-size: 12.5px; }
+.spacer { flex: 1; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--ink-2);
+}
+.badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.live { color: var(--status-good); }
+.badge.finished { color: var(--ink-muted); }
+.badge.stalled { color: var(--status-warning); }
+.badge.recon { color: var(--status-warning); }
+
+.step-readout { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 13px; }
+
+input[type="range"] { accent-color: var(--s1); flex: 1; min-width: 180px; }
+
+/* The world map is square, so it is given a content-sized column and the full
+   height of the main area; letting it share a row with the chat wasted most of
+   a very wide panel on empty background. */
+main {
+  display: grid;
+  grid-template-columns: auto minmax(280px, 1fr) 340px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+  min-height: 0;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.panel h2 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 620;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+#map-panel { grid-column: 1; grid-row: 1 / 3; display: flex; flex-direction: column; overflow: hidden; }
+/* The canvas is sized in JS to an exact multiple of the grid, so it must not be
+   stretched by CSS -- a fractional cell size shows up as shimmering grid lines. */
+#map-wrap { flex: 1; position: relative; min-height: 0; display: grid; place-items: center; }
+#map { display: block; cursor: crosshair; }
+
+#chat-panel { grid-column: 2; grid-row: 1 / 3; }
+#side { grid-column: 3; grid-row: 1; min-height: 330px; }
+#thought { grid-column: 3; grid-row: 2; max-height: 32vh; }
+
+footer.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+/* ---------- map chrome ---------- */
+
+.legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding-top: 8px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.swatch.ramp {
+  width: 46px;
+  background: linear-gradient(90deg, var(--food-0), var(--food-2), var(--food-4));
+}
+.swatch.unknown {
+  background: repeating-linear-gradient(45deg, var(--surface-2) 0 3px, transparent 3px 6px);
+  border: 1px solid var(--border);
+}
+
+#tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: pre;
+  opacity: 0;
+  transition: opacity 0.1s;
+  z-index: 5;
+}
+
+/* ---------- agent inspector ---------- */
+
+.agent-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.agent-chip { width: 12px; height: 12px; border-radius: 4px; }
+.agent-name { font-weight: 620; }
+
+.stat { margin-bottom: 7px; }
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-bottom: 3px;
+}
+.stat-row b { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 560; }
+
+.meter { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.meter > i { display: block; height: 100%; border-radius: 999px; }
+
+/* Genome traits sit in [-1, 1], so they read as a diverging bar set around a
+   neutral zero -- not a radar chart. */
+.trait { display: grid; grid-template-columns: 80px 1fr 36px; gap: 7px; align-items: center; font-size: 11.5px; }
+.trait .label { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; }
+.trait .track { position: relative; height: 11px; }
+.trait .track::before {
+  content: ""; position: absolute; left: 50%; top: 0; bottom: 0;
+  border-left: 1px solid var(--axis);
+}
+.trait .fill { position: absolute; top: 2px; height: 7px; border-radius: 3px; }
+.trait .val { text-align: right; font-family: var(--mono); color: var(--ink-2); font-size: 11px; }
+
+.agent-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.agent-pill {
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.agent-pill.sel { border-color: var(--s2); color: var(--ink); }
+.agent-pill .chip { width: 8px; height: 8px; border-radius: 3px; }
+
+/* ---------- action + thought ---------- */
+
+.action-line { display: flex; gap: 8px; align-items: baseline; margin-bottom: 8px; }
+.tag {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  min-width: 52px;
+}
+.action-name {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--surface-2);
+  padding: 1px 7px;
+  border-radius: 5px;
+}
+.thought {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  border-left: 2px solid var(--s6);
+  padding-left: 10px;
+}
+
+/* ---------- chat ---------- */
+
+.msg { padding: 5px 0; border-bottom: 1px solid var(--grid-line); font-size: 12.5px; }
+.msg:last-child { border-bottom: 0; }
+.msg .who { font-weight: 600; cursor: pointer; }
+.msg .body { color: var(--ink-2); }
+
+.empty { color: var(--ink-muted); font-size: 12.5px; font-style: italic; }
+
+/* ---------- charts ---------- */
+
+.chart svg { width: 100%; height: 92px; display: block; overflow: visible; }
+.chart .hero { font-size: 19px; font-weight: 620; font-variant-numeric: tabular-nums; }
+.chart .hero small { font-size: 11.5px; color: var(--ink-muted); font-weight: 400; }
+.chart-legend { display: flex; gap: 12px; font-size: 11.5px; color: var(--ink-2); margin-top: 4px; }
+
+.grid-line { stroke: var(--grid-line); stroke-width: 1; }
+.axis-line { stroke: var(--axis); stroke-width: 1; }
+.axis-text { fill: var(--ink-muted); font-size: 10px; }
+.cursor-line { stroke: var(--ink-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+
+/* ---------- run picker ---------- */
+
+#runs { display: grid; gap: 8px; }
+.run-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.run-card:hover { border-color: var(--s1); }
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--plane) 85%, transparent);
+  display: grid;
+  place-items: center;
+  z-index: 20;
+  padding: 24px;
+}
+.overlay .box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  width: min(620px, 100%);
+  max-height: 80vh;
+  overflow: auto;
+}
+.hidden { display: none !important; }
