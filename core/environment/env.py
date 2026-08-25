@@ -68,7 +68,7 @@ class OpenGridWorld:
         viral_outbreak_step: int = 0,
         viral_lifespan: int = -1,
         viral_dropped_lifespan: int = 20,
-        viral_infection_radius: int = 2,
+        viral_infection_radius: int = 1,
         viral_infection_probability: float = 0.3,
         viral_energy_multiplier: float = 2.0,
         init_artifacts: str | Path | List[dict] | None = None,
@@ -1732,6 +1732,11 @@ class OpenGridWorld:
         copying itself into the inventory of each agent within
         viral_infection_radius cells. An agent cannot host the same strain
         twice.
+
+        Distance is the Chebyshev distance on the torus (_toroidal_distance),
+        so the default radius of 1 means transmission by contact only: the 8
+        cells directly adjacent to the source, diagonals included and wrapping
+        across the grid seam.
         """
         # Snapshot current infections so that copies created now do not
         # spread in the same step. Sources are (host_tag, position, artifact),

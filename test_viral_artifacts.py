@@ -164,6 +164,42 @@ def test_spread_and_energy():
     print("PASS: spread, energy drain, affordances, death drop, corpse spread, ckpt")
 
 
+def test_contact_only_spread():
+    """The default radius transmits by contact: the 8 adjacent cells, no further."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(tmp, viral_infection_probability=1.0, viral_lifespan=-1)
+    assert env.viral_infection_radius == 1, "default radius should be contact-only"
+
+    # h hosts; ortho and diag are adjacent; far is at Chebyshev distance 2.
+    poses = {"h": (5, 5), "ortho": (5, 6), "diag": (6, 6), "far": (5, 7)}
+    for tag in poses:
+        env.add_agent(agent_tag=tag, agent_name=tag, agent_type="text")
+    env.restart_env(agent_poses=poses)
+    for tag in env.agent_registry:
+        env.agent_energy[tag] = 1000.0
+
+    env.infect_agent(agent_tag="h")
+    env.step({})
+    assert get_viral(env, "ortho"), "orthogonal neighbour should be infected"
+    assert get_viral(env, "diag"), "diagonal neighbour should be infected"
+    assert not get_viral(env, "far"), "distance 2 is out of contact range"
+
+    # Contact wraps around the torus: rows 0 and grid_size - 1 are adjacent.
+    tmp2 = Path(tempfile.mkdtemp())
+    env2 = make_env(tmp2, viral_infection_probability=1.0, viral_lifespan=-1)
+    seam = {"north": (0, 0), "south": (env2.grid_size - 1, 0)}
+    for tag in seam:
+        env2.add_agent(agent_tag=tag, agent_name=tag, agent_type="text")
+    env2.restart_env(agent_poses=seam)
+    for tag in env2.agent_registry:
+        env2.agent_energy[tag] = 1000.0
+
+    env2.infect_agent(agent_tag="north")
+    env2.step({})
+    assert get_viral(env2, "south"), "contact should wrap across the grid seam"
+    print("PASS: contact-only spread (8 adjacent cells, wrapping, nothing further)")
+
+
 def test_recovery():
     tmp = Path(tempfile.mkdtemp())
     env = make_env(
@@ -234,6 +270,7 @@ def test_multiplier_stacks_per_strain():
 
 if __name__ == "__main__":
     test_spread_and_energy()
+    test_contact_only_spread()
     test_recovery()
     test_outbreak()
     test_multiplier_stacks_per_strain()
