@@ -212,7 +212,7 @@ class RunConfig:
         default=False, metadata={"help": "Render simulation live"}
     )
     max_parallel_workers: int = field(
-        default=8, metadata={"help": "Max worker threads"}
+        default=20, metadata={"help": "Max worker threads"}
     )
     max_ts: int = field(default=3000, metadata={"help": "Max simulation timesteps"})
     ports: tuple = field(
