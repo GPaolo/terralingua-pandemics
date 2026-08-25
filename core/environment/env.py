@@ -34,6 +34,18 @@ MOVE_DICT = {
 AGENT_INPUT_TYPE = ["text"]
 AVAILABLE_DEAD_AGENT_FOOD = ["single", "area", "none"]
 
+#: What an agent hosting a viral artifact is told about itself, every step, in
+#: the "Additional info from the environment" block of its prompt. Deliberately
+#: describes the symptoms rather than naming the virus: nothing in the system
+#: prompt announces that sickness exists, so a healthy agent still has to work
+#: out what is happening to the being that stopped moving.
+SICK_AGENT_NOTICE = (
+    "You are sick. Something is living inside you and draining your energy. "
+    "You are too weak to move or to take energy from others, and you have no "
+    "appetite: food no longer restores you. You can still speak, and other "
+    "beings can still give you energy."
+)
+
 
 class OpenGridWorld:
     """Same grid rules as before, plus agent registry & coded messages."""
@@ -435,10 +447,25 @@ class OpenGridWorld:
         for agent_tag in self.agent_registry:
             avail_actions = self._get_avail_actions(agent_tag=agent_tag)
             infos[agent_tag] = {"available_actions": avail_actions}
+            # Matters on --resume: agents infected before the checkpoint would
+            # otherwise get their first prompt back without the notice.
+            if self._count_viral(agent_tag) > 0:
+                infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
 
         self._log_world_state()
 
         return self._observe_all(), infos
+
+    @staticmethod
+    def _note_outcome(infos: dict, agent_tag: str, message: str):
+        """Appends to an agent's "Action outcome" instead of overwriting it.
+
+        A sick agent can trip several restrictions in the same step (it tried to
+        move *and* it is standing on food it cannot eat), and each of those is
+        the only feedback it gets about why nothing happened.
+        """
+        previous = infos[agent_tag].get("Action outcome", "")
+        infos[agent_tag]["Action outcome"] = f"{previous} {message}".strip()
 
     def _count_viral(self, agent_tag: str) -> int:
         """How many viral artifacts this agent is currently hosting."""
@@ -513,6 +540,12 @@ class OpenGridWorld:
                 )
 
             move = (0, 0)
+            # Hosting a viral artifact makes an agent sick: it cannot move,
+            # steal energy or eat until the infection clears. _get_avail_actions
+            # already withholds those affordances; re-checking here keeps the
+            # rule true even for a hand-driven step() and, unlike the silent
+            # coercion below, tells the agent why nothing happened.
+            sick = self._count_viral(agent) > 0
 
             # Get action name, message and params
             # ---------------------------
@@ -520,6 +553,17 @@ class OpenGridWorld:
             action_name = act.get("action", "move")
             message = act.get("message", "")
             action_params = act.get("params", {})
+
+            # Intercept before the availability gate below: it withholds "take"
+            # from a sick agent, so the gate would already have coerced this to
+            # a silent stay and the agent would never learn why.
+            if sick and action_name == "take":
+                self._note_outcome(
+                    infos, agent, "You are too sick to take energy from another being."
+                )
+                rewards[agent] -= 1
+                action_name = "move"
+                action_params = {"direction": "stay"}
 
             if action_name not in self.agent_avail_actions[agent]:
                 print(
@@ -546,6 +590,13 @@ class OpenGridWorld:
                     move = MOVE_DICT.get(action_params.get("direction", "stay"), (0, 0))
                 except:
                     move = (0, 0)
+                if sick and move != (0, 0):
+                    move = (0, 0)
+                    self._note_outcome(
+                        infos,
+                        agent,
+                        "You are too sick to move. You stayed where you are.",
+                    )
             # ---------------------------
 
             # Handle Energy exchange
@@ -608,8 +659,10 @@ class OpenGridWorld:
                                 final_energy=self.agent_energy[agent],
                             )
                     else:
-                        infos[agent]["Action outcome"] = (
-                            f"Cannot {action_name} energy to {target_name} as not nearby"
+                        self._note_outcome(
+                            infos,
+                            agent,
+                            f"Cannot {action_name} energy to {target_name} as not nearby",
                         )
                         rewards[agent] -= 1
             # ---------------------------
@@ -961,10 +1014,20 @@ class OpenGridWorld:
                     rewards[agent] -= 0.5
 
             # food / energy
+            # A sick agent has no appetite: the food is left untouched on the
+            # cell, still there for others and for the agent once it recovers.
             if new_pose in self.food:
-                val = self.food.pop(new_pose)
-                self.agent_energy[agent] += val
-                rewards[agent] += val
+                if sick:
+                    self._note_outcome(
+                        infos,
+                        agent,
+                        "You are standing on food but you have no appetite. "
+                        "It gave you nothing.",
+                    )
+                else:
+                    val = self.food.pop(new_pose)
+                    self.agent_energy[agent] += val
+                    rewards[agent] += val
             # ---------------------------
 
             # Artifact passive effects
@@ -1108,6 +1171,8 @@ class OpenGridWorld:
             if agent_tag not in infos:
                 infos[agent_tag] = {}
             infos[agent_tag]["available_actions"] = avail_actions
+            if self._count_viral(agent_tag) > 0:
+                infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
             if self.use_colors:
                 agent_color = self.agent_colors.get(agent_tag, "no color")
                 infos[agent_tag]["Your color"] = agent_color
@@ -1737,6 +1802,12 @@ class OpenGridWorld:
         so the default radius of 1 means transmission by contact only: the 8
         cells directly adjacent to the source, diagonals included and wrapping
         across the grid seam.
+
+        Note hosts are immobilised and stop foraging while sick, so they are
+        stationary sources and healthy agents have to walk into them. Realised
+        R0 therefore falls below the free-mixing estimate annotated in
+        run_viral_experiment.sh; measure it with analysis_scripts/compute_r0.py
+        rather than trusting the formula.
         """
         # Snapshot current infections so that copies created now do not
         # spread in the same step. Sources are (host_tag, position, artifact),
@@ -1798,8 +1869,21 @@ class OpenGridWorld:
     def _get_avail_actions(self, agent_tag: str):
         agent_position = self.agent_pos[agent_tag]
 
-        # Can always move
+        # Hosting a viral artifact makes an agent sick: it cannot move or steal
+        # energy (and, in step(), it stops eating). "move" itself stays on the
+        # list, restricted to "stay", so that a sick agent alone in an empty
+        # patch is never left with an empty action list — the prompt would then
+        # offer it nothing to choose and every reply would fail to parse.
+        sick = self._count_viral(agent_tag) > 0
+
         available_actions = {"move": deepcopy(ACTION_TEXT["move"])}
+        if sick:
+            available_actions["move"]["description"] = (
+                "You are too sick to move. You can only stay where you are."
+            )
+            available_actions["move"]["params"]["direction"] = (
+                "Must be 'stay': you are too sick to move."
+            )
 
         # Colors
         # ---------------------------
@@ -1823,7 +1907,9 @@ class OpenGridWorld:
 
         if nearby_agents and self.food_mechanism:
             available_actions["give"] = deepcopy(ACTION_TEXT["give"])
-            available_actions["take"] = deepcopy(ACTION_TEXT["take"])
+            # A sick agent is too weak to steal, but can still give energy away
+            if not sick:
+                available_actions["take"] = deepcopy(ACTION_TEXT["take"])
         # ---------------------------
 
         # Artifacts
