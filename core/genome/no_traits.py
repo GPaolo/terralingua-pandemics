@@ -8,6 +8,8 @@ from core.genome.base_genome import Genome as BaseGenome
 class Genome(BaseGenome):
     """This genome has no traits. It is used for agents that do not require any personality traits."""
 
+    genome_type = "no_traits"
+
     def as_dict(self) -> dict[str, float]:
         return {}
 

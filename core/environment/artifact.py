@@ -15,6 +15,11 @@ ArtifactCreationError = ValueError
 
 
 class Artifact:
+    # Whether agents can act on the artifact: pick it up, drop it, give it
+    # away or use the actions it offers. Non-interactable artifacts can only
+    # be affected by the environment itself.
+    interactable = True
+
     def __init__(
         self,
         name: str,
@@ -218,3 +223,81 @@ class TextArtifact(Artifact):
                 f"Payload exceeds maximum token limit of {MAX_TEXT_ARTIFACT_SIZE} tokens (got {token_count} tokens)",
             )
         return True, ""
+
+
+class ViralArtifact(Artifact):
+    """A virus-like artifact that lives only inside agent inventories.
+
+    It has no content and cannot be created by agents: the environment adds it
+    directly to an agent's inventory. Agents cannot act on it in any way
+    (no pickup/drop/give/modify/destroy). Each step the environment can spread
+    copies of it to nearby agents, and hosts consume energy faster. The
+    infection ends when the artifact's lifespan runs out. When its host dies,
+    it is dropped on the map for a set amount of time, during which it keeps
+    spreading to nearby agents.
+    """
+
+    interactable = False
+
+    def __init__(
+        self,
+        name: str,
+        lifespan: int | float,
+        pose: Tuple[int, int],
+        creator: str,
+        creation_time: int,
+        strain: str | None = None,
+        payload: Any = "",  # ignored, viral artifacts have no content
+    ):
+        super().__init__(
+            name=name,
+            payload="",
+            lifespan=lifespan,
+            pose=pose,
+            creator=creator,
+            creation_time=creation_time,
+        )
+        self.art_type = "viral"
+        # Name of the strain this artifact belongs to. Copies keep the strain
+        # of their source, so an agent cannot host the same strain twice.
+        self.strain = strain if strain is not None else name
+
+    @property
+    def actions(self):
+        # Hosts cannot act on a viral artifact
+        return {}
+
+    def passive_effect(self, timestamp: int, agent_name: str):
+        self.users[agent_name].add(timestamp)
+        return f"Artifact {self.name} cannot be interacted with."
+
+    def interact(
+        self, agent_name: str, action: str, params: dict, timestamp: int
+    ) -> str:
+        return f"Artifact {self.name} cannot be acted upon."
+
+    def verify_payload(self, payload) -> Tuple[bool, str]:
+        # Viral artifacts carry no content
+        return True, ""
+
+    def spawn_copy(self, name: str, pose: Tuple[int, int], timestamp: int):
+        """Creates the copy of this artifact that infects a new host."""
+        return ViralArtifact(
+            name=name,
+            lifespan=self.lifespan,
+            pose=pose,
+            creator=self.creator,
+            creation_time=timestamp,
+            strain=self.strain,
+        )
+
+    def serialize(self) -> dict:
+        serialized = super().serialize()
+        serialized["strain"] = self.strain
+        return serialized
+
+    @classmethod
+    def deserialize(cls, data: dict):
+        artifact = super().deserialize(data)
+        artifact.strain = data.get("strain", artifact.name)
+        return artifact

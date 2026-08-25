@@ -1,0 +1,28 @@
+[
+    {
+        "name": "welcome_stone",
+        "payload": "Welcome to this world. Food grows in the fertile zones.",
+        "pose": [10, 10],
+        "lifespan": -1,
+        "step": 0
+    },
+    {
+        "name": "old_prophecy",
+        "payload": "A sickness will come. Keep your distance from the fallen.",
+        "pose": [25, 25],
+        "lifespan": 200,
+        "step": 0
+    },
+    {
+        "name": "mid_run_message",
+        "payload": "This artifact appears at timestep 50, at a random free cell (no pose given).",
+        "step": 50
+    },
+    {
+        "name": "secret_note",
+        "payload": "This artifact is seeded directly into being0's inventory instead of on the map.",
+        "agent": "being0",
+        "lifespan": -1,
+        "step": 0
+    }
+]
