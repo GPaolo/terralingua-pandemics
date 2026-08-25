@@ -20,6 +20,7 @@ from core.environment.artifact import (
     ViralArtifact,
 )
 from core.environment.env_logger import Event, JSONLogger
+from core.environment.world_logger import WorldStateLogger
 
 MOVE_DICT = {
     "stay": (0, 0),
@@ -72,6 +73,7 @@ class OpenGridWorld:
         viral_energy_multiplier: float = 2.0,
         init_artifacts: str | Path | List[dict] | None = None,
         parent_authored_genome: bool = False,
+        log_world_state: bool = True,
     ):
         # grid/world params
         # ---------------------------
@@ -125,6 +127,17 @@ class OpenGridWorld:
         self.static_food = static_food
         self.log_path = Path(log_path) if log_path is not None else Path(".")
         self.logger = JSONLogger(self.log_path / "open_gridworld.log")
+        # Per-step world snapshot, so a run can be followed live and replayed
+        # afterwards without reading any pickle.
+        self.world_logger = (
+            WorldStateLogger(
+                self.log_path / "world_state.jsonl",
+                grid_size=grid_size,
+                max_food_value=max_food_value,
+            )
+            if log_world_state
+            else None
+        )
         # ---------------------------
 
         # Runtime state
@@ -423,7 +436,61 @@ class OpenGridWorld:
             avail_actions = self._get_avail_actions(agent_tag=agent_tag)
             infos[agent_tag] = {"available_actions": avail_actions}
 
+        self._log_world_state()
+
         return self._observe_all(), infos
+
+    def _count_viral(self, agent_tag: str) -> int:
+        """How many viral artifacts this agent is currently hosting."""
+        return sum(
+            1
+            for name in self.agent_inventories[agent_tag]
+            if isinstance(self.artifacts.get(name), ViralArtifact)
+        )
+
+    def _log_world_state(self):
+        """Append the current world to ``world_state.jsonl``.
+
+        Called at the end of ``reset`` (for t=0) and at the end of every ``step``.
+        """
+        if self.world_logger is None:
+            return
+
+        agents = {}
+        n_infected = 0
+        for tag in self.agent_registry:
+            pos = self.agent_pos.get(tag)
+            if pos is None:
+                continue
+            n_viral = self._count_viral(tag)
+            n_infected += n_viral > 0
+            # A negative init_agent_energy means infinite energy, which is not
+            # representable in JSON; null reads as "unbounded" to the consumer.
+            energy = self.agent_energy[tag]
+            agents[tag] = [
+                pos[0],
+                pos[1],
+                float(energy) if np.isfinite(energy) else None,
+                self.agent_time[tag],
+                len(self.agent_inventories[tag]),
+                n_viral,
+            ]
+
+        # artifacts_map is a defaultdict, so a stale read can leave empty sets
+        artifacts = (
+            (pos[0], pos[1], name)
+            for pos, names in self.artifacts_map.items()
+            for name in names
+        )
+
+        self.world_logger.log_step(
+            t=self.step_count,
+            agents=agents,
+            food=self.food,
+            artifacts=artifacts,
+            food_total=sum(self.food.values()),
+            n_infected=n_infected,
+        )
 
     # ---------- core mechanics ----------
     def step(self, actions):
@@ -1054,6 +1121,7 @@ class OpenGridWorld:
 
         self.step_count += 1
         self.food_count.append(sum(self.food.values()))
+        self._log_world_state()
 
         return observations, rewards, done_dict, done_dict, infos
 
@@ -2304,6 +2372,20 @@ class OpenGridWorld:
             self.logger = JSONLogger(logger_save_path)
             self.logger.data = state_ckpt.get("logger_data", {})
 
+        if self.world_logger is not None:
+            # Resuming continues an existing run, so append rather than truncate.
+            # The logger writes a fresh keyframe on its first line, which gives a
+            # reader a clean seek point at the resume step.
+            self.world_logger.close()
+            self.world_logger = WorldStateLogger(
+                Path(logger_save_path).parent / "world_state.jsonl"
+                if logger_save_path is not None
+                else self.log_path / "world_state.jsonl",
+                grid_size=self.grid_size,
+                max_food_value=self._max_food_value,
+                append=True,
+            )
+
     def close(self):
         print("Saving environment...")
         self.logger.log(
@@ -2347,6 +2429,8 @@ class OpenGridWorld:
 
         if self.logger:
             self.logger.close()
+        if self.world_logger:
+            self.world_logger.close()
         if self._pygame_inited:
             pygame.quit()
             self._pygame_inited = False

@@ -14,3 +14,4 @@ plots/
 *-checkpoint.ipynb
 *.svg
 .idea/
+!viz/static/**

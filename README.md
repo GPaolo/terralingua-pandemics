@@ -61,6 +61,42 @@ bash run_experiment.sh
 
 Logs are written to `logs/<exp_name>/`.
 
+## Watching an experiment
+
+`viz/` is a local web dashboard for following a run as it happens and scrubbing
+back through it afterwards. Start it in a second terminal — it is deliberately a
+separate process from the experiment:
+
+```bash
+python -m viz                     # serves ./logs on http://127.0.0.1:8000
+python -m viz --logs /data/logs --port 9999
+```
+
+It shows the world map (food, artifacts, beings, movement trails, the selected
+being's vision), a being inspector with energy, age, inventory and OCEAN-5
+genome, the action and the private `internal_memory` behind it, the chat feed,
+the artifacts, and charts of food, population, artifact creation and token spend.
+Viral runs additionally get infection status on the map and R₀ per generation.
+
+Runs are picked up automatically: a run is **live** until `open_gridworld.log`
+records `END_RUN`, and the view follows new steps as they are written.
+
+Keyboard: `space` play/pause, `←`/`→` step (hold shift for 10), `home`/`end`,
+`esc` closes a dialog.
+
+### Where the data comes from
+
+Per-step world state is written to `logs/<exp_name>/world_state.jsonl` — agent
+positions, energy, age, infection, plus food and artifact deltas with a keyframe
+every 50 steps. Disable with `--no-log_world_state`; it costs roughly 20 MB for a
+3000-step, 100-agent run.
+
+Runs recorded before that file existed are reconstructed on first open (see
+`viz/backfill.py`), and the UI marks them **reconstructed**: positions are
+inferred from what the beings observed, and the food map shows only cells
+somebody has visited. The dashboard reads no `.pkl` file, so a run downloaded
+from elsewhere can be opened without executing its contents.
+
 ### Seeding artifacts
 
 The environment can seed text artifacts by itself, at the start of a run or at a chosen timestep, via `--init_artifacts path/to/file.json`. The file is a JSON list of entries (see [`init_artifacts_example.json`](init_artifacts_example.json)):

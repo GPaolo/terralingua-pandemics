@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TerraLingua</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="app">
+  <header class="bar">
+    <div>
+      <div class="title" id="run-name">TerraLingua</div>
+      <div class="subtitle" id="run-sub">loading…</div>
+    </div>
+
+    <span class="badge" id="status-badge"><span class="dot"></span><span></span></span>
+    <span class="badge recon hidden" id="recon-badge">reconstructed</span>
+
+    <div class="spacer"></div>
+
+    <button id="play" title="Play / pause (space)">▶</button>
+    <span class="step-readout" id="step-readout">— / —</span>
+    <input type="range" id="scrub" min="0" max="0" value="0" title="Scrub through time">
+    <select id="speed" title="Playback speed">
+      <option value="500">0.5×</option>
+      <option value="250" selected>1×</option>
+      <option value="100">2.5×</option>
+      <option value="40">6×</option>
+    </select>
+    <button id="pick-run" title="Switch experiment">Runs</button>
+    <button id="theme" title="Toggle light / dark">◐</button>
+  </header>
+
+  <main>
+    <section class="panel" id="map-panel">
+      <h2>World <span id="grid-dims"></span></h2>
+      <div id="map-wrap">
+        <canvas id="map"></canvas>
+        <div id="tooltip"></div>
+      </div>
+      <div class="legend">
+        <span class="key"><span class="swatch ramp"></span> food</span>
+        <span class="key"><span class="swatch" style="background:var(--s1)"></span> being</span>
+        <span class="key"><span class="swatch" style="background:var(--s2)"></span> selected</span>
+        <span class="key"><span class="swatch" style="background:var(--s6);border-radius:1px;transform:rotate(45deg)"></span> artifact</span>
+        <span class="key" id="legend-infected" hidden><span class="swatch" style="background:var(--status-critical)"></span> ☣ infected</span>
+        <span class="key" id="legend-unknown" hidden><span class="swatch unknown"></span> never observed</span>
+      </div>
+    </section>
+
+    <section class="panel" id="chat-panel">
+      <h2>Chat <button id="chat-all" style="float:right;padding:1px 7px;font-size:11px">whole run</button></h2>
+      <div id="chat-body"></div>
+    </section>
+
+    <section class="panel" id="side">
+      <h2>Beings</h2>
+      <div class="agent-list" id="agent-list"></div>
+      <div id="agent-detail" style="margin-top:14px"></div>
+    </section>
+
+    <section class="panel" id="thought">
+      <h2>Action &amp; thought</h2>
+      <div id="thought-body"><p class="empty">Select a being to see what it did and what it was thinking.</p></div>
+    </section>
+  </main>
+
+  <footer class="charts" id="charts"></footer>
+</div>
+
+<div class="overlay hidden" id="run-overlay">
+  <div class="box">
+    <h2 style="margin-top:0">Experiments</h2>
+    <div id="runs"></div>
+    <p class="empty" id="runs-empty" hidden>No runs found. Start one with <code>bash run_experiment.sh</code>.</p>
+  </div>
+</div>
+
+<div class="overlay hidden" id="chat-overlay">
+  <div class="box">
+    <h2 style="margin-top:0">Chat — step <span id="chat-step"></span></h2>
+    <div id="chat-full"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

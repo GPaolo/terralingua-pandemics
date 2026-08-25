@@ -106,6 +106,7 @@ class SimulationRunner:
             viral_energy_multiplier=self.params.env.viral_energy_multiplier,
             init_artifacts=self.params.env.init_artifacts,
             parent_authored_genome=self.params.agent.genome == "sentence_directed",
+            log_world_state=self.params.run.log_world_state,
         )
 
     def _init_state(self):
