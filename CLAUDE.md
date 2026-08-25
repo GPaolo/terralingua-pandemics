@@ -115,5 +115,15 @@ produce the same shape.
 Chart work in `viz/static/` follows the `dataviz` skill: one y-axis per chart,
 categorical hues assigned in fixed order and never cycled, a single-hue ramp for
 magnitude. Green is reserved for the food ramp and kept out of the categorical
-slots so a being never reads as the ground it stands on. Past ~6 beings, identity
-by hue stops working and everything falls back to one color plus labels.
+slots so a being never reads as the ground it stands on.
+
+**Beings are not colored by identity.** Every being is `--s1`; `agentColor()` takes
+no argument. Hue on the map is spent on state, not on who: infection is the dot's
+**fill** (`--status-critical`), and selection is a neutral `--select` **bracket on
+the cell box** (`drawSelection`), never a ring on the dot. Don't reintroduce a
+per-being palette — reserved red sits below the legibility floor against both the
+orange and the magenta slot (ΔE 6.8 and 9.0, floor 15), so a healthy being would
+read as a sick one. Identity is carried by the brackets, the trail, the tooltip and
+the Beings list. Selection and infection must also never share a geometry: they
+were concentric rings a pixel apart, and at mid cell sizes the selection ring
+painted straight over the infection ring.

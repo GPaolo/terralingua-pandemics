@@ -8,15 +8,7 @@ const api = (path) => fetch(path).then((r) => {
   return r.json();
 });
 
-/* Categorical slots in fixed order. Green is deliberately absent: it is the food
-   ramp's hue, and a being must never read as the ground it stands on. */
-const SERIES = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6"];
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-
-/* Above this many beings, identity by hue stops working, so everyone shares one
-   color and identity is carried by labels and the inspector instead. Cycling a
-   palette past its slots would invent meaning that is not there. */
-const MAX_IDENTITY_COLORS = 6;
 
 const state = {
   run: null,
@@ -181,13 +173,13 @@ function startStream() {
 
 /* ---------------- rendering ---------------- */
 
-function agentColor(tag) {
-  const agents = state.meta.agents;
-  if (agents.length > MAX_IDENTITY_COLORS) {
-    return tag === state.selected ? cssVar("--s2") : cssVar("--s1");
-  }
-  const i = agents.indexOf(tag);
-  return cssVar(SERIES[Math.max(0, i) % SERIES.length]);
+/* Every being wears one hue. Identity by color only ever worked for the first
+   handful of beings, and it left no hue safe for infection: reserved red sits
+   below the legibility floor against both the orange and the magenta slot, so a
+   healthy being would have read as a sick one. Identity is carried by the
+   selection brackets, the trail, the tooltip and the Beings list instead. */
+function agentColor() {
+  return cssVar("--s1");
 }
 
 function foodColor(v, max) {
@@ -251,20 +243,29 @@ function drawMap() {
     ctx.stroke();
   }
 
-  // Vision radius of the selected being, drawn under everything else.
+  /* Vision radius of the selected being: an outline, not a wash. Filling these
+     cells shifts their lightness, which is the very channel the food ramp
+     encodes, so a seen cell reads as a different amount of food than it holds --
+     and on a reconstructed run it tints "never observed" black into a third
+     state that means nothing. Dashed, so the soft edge of what a being can see
+     never reads as the hard edge of the selection brackets. */
   const sel = state.selected && state.world.agents[state.selected];
   if (sel && state.meta.vision_radius) {
     const r = state.meta.vision_radius;
-    ctx.fillStyle = cssVar("--s2");
-    // Needs to read over bright food as well as over unobserved black, so it
-    // cannot be as faint as a wash on a neutral background would be.
-    ctx.globalAlpha = 0.22;
-    for (let dx = -r; dx <= r; dx++) {
-      for (let dy = -r; dy <= r; dy++) {
-        const x = mod(sel[0] + dx, n), y = mod(sel[1] + dy, n);
-        ctx.fillRect(y * cell, x * cell, cell, cell);
+    const side = (2 * r + 1) * cell;
+    const left = (sel[1] - r) * cell, top = (sel[0] - r) * cell;
+    ctx.strokeStyle = cssVar("--select");
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = Math.max(1, Math.min(2, cell * 0.08));
+    ctx.setLineDash([Math.max(2, cell * 0.5), Math.max(2, cell * 0.5)]);
+    // The block wraps on the torus, so stroke it at every wrap offset and let
+    // the canvas clip the copies that fall outside.
+    for (const dx of [-n, 0, n]) {
+      for (const dy of [-n, 0, n]) {
+        ctx.strokeRect(left + dy * cell, top + dx * cell, side, side);
       }
     }
+    ctx.setLineDash([]);
     ctx.globalAlpha = 1;
   }
 
@@ -280,29 +281,49 @@ function drawMap() {
 
   drawTrail(ctx, cell, n);
 
-  for (const [tag, a] of Object.entries(state.world.agents)) {
+  /* Infection is the fill and selection is a frame on the cell, so the two never
+     compete for the same pixels. They used to be concentric rings a pixel apart,
+     which at mid cell sizes meant the selection ring painted straight over the
+     infection ring and a sick being looked healthy the moment you clicked it. */
+  for (const [, a] of Object.entries(state.world.agents)) {
     const [x, y, , , , nViral] = a;
     const cx = y * cell + cell / 2, cy = x * cell + cell / 2;
     const r = Math.max(1.5, cell * 0.36);
-    ctx.fillStyle = agentColor(tag);
+    ctx.fillStyle = nViral > 0 ? cssVar("--status-critical") : agentColor();
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
 
     // A 2px surface ring keeps overlapping marks legible.
     ctx.strokeStyle = cssVar("--surface");
     ctx.lineWidth = Math.min(2, cell * 0.12);
     ctx.stroke();
-
-    if (nViral > 0) {   // status color plus a glyph, never color alone
-      ctx.strokeStyle = cssVar("--status-critical");
-      ctx.lineWidth = Math.max(1, cell * 0.14);
-      ctx.beginPath(); ctx.arc(cx, cy, r + ctx.lineWidth, 0, Math.PI * 2); ctx.stroke();
-    }
-    if (tag === state.selected) {
-      ctx.strokeStyle = cssVar("--s2");
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(cx, cy, r + 3, 0, Math.PI * 2); ctx.stroke();
-    }
   }
+
+  // Last, so a being standing on the same cell cannot paint over it.
+  if (sel) drawSelection(ctx, cell, sel[0], sel[1]);
+}
+
+/* Selection is an interaction state, not data, so it stays off the hue channel:
+   neutral ink brackets on the cell box, with a wider --surface stroke underneath
+   so the pair holds >= 4.4:1 against every color this map can paint. The box has a
+   pixel floor -- on a 100x100 grid a 2px cell cannot carry a frame, so the reticle
+   grows past its cell and reads as "here" rather than vanishing. */
+function drawSelection(ctx, cell, row, col) {
+  const box = Math.max(cell, 14);
+  const w = Math.min(2, Math.max(1.5, cell * 0.1));
+  const cx = col * cell + cell / 2, cy = row * cell + cell / 2;
+  const h = box / 2 - w;                    // half-size, stroke kept inside the box
+  const arm = Math.max(3, h * 0.55);
+  ctx.beginPath();
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    const px = cx + sx * h, py = cy + sy * h;
+    ctx.moveTo(px - sx * arm, py);
+    ctx.lineTo(px, py);
+    ctx.lineTo(px, py - sy * arm);
+  }
+  // drawTrail leaves lineCap at "round"; brackets need square ends.
+  ctx.lineCap = "butt"; ctx.lineJoin = "miter";
+  ctx.strokeStyle = cssVar("--surface"); ctx.lineWidth = w + 2; ctx.stroke();
+  ctx.strokeStyle = cssVar("--select");   ctx.lineWidth = w;     ctx.stroke();
 }
 
 /* The world is a torus, so a trail that leaves one edge reappears on the other.
@@ -313,7 +334,7 @@ function drawTrail(ctx, cell, n) {
   if (!state.selected || !trail || trail.tag !== state.selected) return;
   const pts = trail.points.filter((p) => p[0] <= state.step).map((p) => [p[1], p[2]]);
   if (pts.length < 2) return;
-  ctx.strokeStyle = cssVar("--s2");
+  ctx.strokeStyle = cssVar("--select");
   ctx.globalAlpha = 0.55;
   ctx.lineWidth = Math.max(1, cell * 0.14);
   ctx.lineCap = "round";
@@ -327,8 +348,6 @@ function drawTrail(ctx, cell, n) {
   }
   ctx.globalAlpha = 1;
 }
-
-const mod = (a, n) => ((a % n) + n) % n;
 
 function selectAgent(tag) {
   state.selected = tag;
@@ -347,9 +366,10 @@ function drawAgentList() {
     pill.className = "agent-pill" + (tag === state.selected ? " sel" : "");
     pill.style.opacity = here ? 1 : 0.35;
     pill.title = here ? "" : "not present at this step";
+    const sick = here && here[5] > 0;
     pill.innerHTML =
-      `<span class="chip" style="background:${agentColor(tag)}"></span>${esc(tag)}` +
-      (here && here[5] > 0 ? " ☣" : "");
+      `<span class="chip" style="background:${sick ? cssVar("--status-critical") : agentColor()}"></span>${esc(tag)}` +
+      (sick ? " ☣" : "");
     pill.onclick = () => selectAgent(tag);
     box.appendChild(pill);
   }
@@ -382,7 +402,7 @@ function drawAgentDetail() {
 
   box.innerHTML = `
     <div class="agent-head">
-      <span class="agent-chip" style="background:${agentColor(tag)}"></span>
+      <span class="agent-chip" style="background:${nViral > 0 ? cssVar("--status-critical") : agentColor()}"></span>
       <span class="agent-name">${esc(tag)}</span>
       ${nViral > 0 ? '<span class="badge" style="color:var(--status-critical)">☣ infected</span>' : ""}
     </div>
@@ -440,7 +460,7 @@ function drawChat() {
   }
   box.innerHTML = msgs.map((m) => `
     <div class="msg">
-      <span class="who" style="color:${agentColor(m.agent_tag)}" data-tag="${esc(m.agent_tag)}">${esc(m.agent_name)}</span>
+      <span class="who" style="color:${agentColor()}" data-tag="${esc(m.agent_tag)}">${esc(m.agent_name)}</span>
       <span class="body">${esc(m.message)}</span>
     </div>`).join("");
   box.querySelectorAll(".who").forEach((el) => {
@@ -472,7 +492,9 @@ function drawCharts() {
   const pop = [{ name: "beings", points: zip(s.t, s.n_agents), color: cssVar("--s1") }];
   if (state.meta.has_viral) {
     // Same unit (a count of beings), so both share one axis. Never two scales.
-    pop.push({ name: "infected", points: zip(s.t, s.n_infected), color: cssVar("--s2") });
+    // Reserved status red, matching the map, and labelled with the glyph so the
+    // color is never the only thing saying "infected".
+    pop.push({ name: "☣ infected", points: zip(s.t, s.n_infected), color: cssVar("--status-critical") });
   }
   box.appendChild(chartCard({ title: "Population", series: pop, format: (v) => v }));
 
@@ -622,7 +644,7 @@ function hookControls() {
     $("#chat-step").textContent = `0–${state.meta.last_step}`;
     $("#chat-full").innerHTML = messages.map((m) => `
       <div class="msg"><span class="subtitle">${m.t}</span>
-      <span class="who" style="color:${agentColor(m.agent_tag)}">${esc(m.agent_name)}</span>
+      <span class="who" style="color:${agentColor()}">${esc(m.agent_name)}</span>
       <span class="body">${esc(m.message)}</span></div>`).join("") ||
       '<p class="empty">Nothing was said in this run.</p>';
     $("#chat-overlay").classList.remove("hidden");

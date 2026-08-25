@@ -13,6 +13,10 @@
   --ink: #ffffff;
   --ink-2: #c3c2b7;
   --ink-muted: #898781;
+  /* Selection is an interaction state, not data, so it wears neutral ink and a
+     shape of its own rather than spending a categorical slot on "the selected
+     one". Named apart from --ink so its weight can be tuned without moving text. */
+  --select: #ffffff;
   --grid-line: #2c2c2a;
   --axis: #383835;
   --border: rgba(255, 255, 255, 0.1);
@@ -51,6 +55,7 @@
   --ink: #0b0b0b;
   --ink-2: #52514e;
   --ink-muted: #898781;
+  --select: #0b0b0b;
   --grid-line: #e1e0d9;
   --axis: #c3c2b7;
   --border: rgba(11, 11, 11, 0.1);
@@ -191,6 +196,10 @@ footer.charts {
   color: var(--ink-2);
 }
 .legend .key { display: inline-flex; align-items: center; gap: 6px; }
+/* The two conditional keys are toggled with [hidden], which this display rule
+   would otherwise win against -- leaving every run advertising infection and
+   unobserved ground whether or not it has either. */
+.legend .key[hidden] { display: none; }
 .swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 .swatch.ramp {
   width: 46px;
@@ -200,6 +209,20 @@ footer.charts {
   background: repeating-linear-gradient(45deg, var(--surface-2) 0 3px, transparent 3px 6px);
   border: 1px solid var(--border);
 }
+/* The map's corner brackets at swatch scale, one gradient layer per arm. Hollow
+   on purpose: the mark frames the being underneath rather than replacing it. */
+.swatch.sel {
+  --arm: linear-gradient(var(--select) 0 0);
+  background: var(--arm) 0 0/4px 2px,       var(--arm) 0 0/2px 4px,
+              var(--arm) 100% 0/4px 2px,    var(--arm) 100% 0/2px 4px,
+              var(--arm) 0 100%/4px 2px,    var(--arm) 0 100%/2px 4px,
+              var(--arm) 100% 100%/4px 2px, var(--arm) 100% 100%/2px 4px;
+  background-repeat: no-repeat;
+  border-radius: 0;
+}
+/* Beings are discs on the map, so their keys are round rather than square. */
+.swatch.being { background: var(--s1); border-radius: 50%; }
+.swatch.infected { background: var(--status-critical); border-radius: 50%; }
 
 #tooltip {
   position: absolute;
@@ -259,7 +282,11 @@ footer.charts {
   align-items: center;
   gap: 5px;
 }
-.agent-pill.sel { border-color: var(--s2); color: var(--ink); }
+.agent-pill.sel {
+  border-color: var(--select);
+  box-shadow: 0 0 0 1px var(--select); /* matches the map bracket's weight */
+  color: var(--ink);
+}
 .agent-pill .chip { width: 8px; height: 8px; border-radius: 3px; }
 
 /* ---------- action + thought ---------- */
