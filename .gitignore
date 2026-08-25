@@ -12,3 +12,4 @@ plots/
 *.pdf
 *-checkpoint.ipynb
 *.svg
+.idea/
