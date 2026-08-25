@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "open-gridworld"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = "==3.12.*"
 # If you want to mirror requirements.txt here, list them under dependencies:
 # dependencies = ["numpy", "gymnasium", ...]
 dependencies = [
