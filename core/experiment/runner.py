@@ -104,6 +104,7 @@ class SimulationRunner:
             viral_infection_radius=self.params.env.viral_infection_radius,
             viral_infection_probability=self.params.env.viral_infection_probability,
             viral_energy_multiplier=self.params.env.viral_energy_multiplier,
+            init_artifacts=self.params.env.init_artifacts,
             parent_authored_genome=self.params.agent.genome == "sentence_directed",
         )
 
@@ -373,14 +374,23 @@ class SimulationRunner:
         for sig in (signal.SIGINT, signal.SIGTERM):
             signal.signal(sig, self._handle_term)
 
-        threading.Thread(target=self._watch_stdin, daemon=True).start()
-        print(
-            "ℹ️  Press Ctrl+D to force kill immediately, Ctrl+C to stop after current step."
-        )
+        # Only watch stdin on a real terminal: in headless runs (nohup, CI,
+        # stdin redirected) stdin is at EOF immediately and the watcher would
+        # force-kill the run at startup.
+        if sys.stdin.isatty():
+            threading.Thread(target=self._watch_stdin, daemon=True).start()
+            print(
+                "ℹ️  Press Ctrl+D to force kill immediately, Ctrl+C to stop after current step."
+            )
+        else:
+            print("ℹ️  Press Ctrl+C to stop after current step.")
 
         max_ts = self.params.run.max_ts
         ckpt_interval = self.params.run.ckpt_interval
         empty_countdown = self.params.run.empty_countdown
+        # If the loop body never runs (e.g. resuming a finished run), the final
+        # checkpoint below must still have a valid ts.
+        ts = self.start_ts - 1
         try:
             with ThreadPoolExecutor(
                 max_workers=self.params.run.max_parallel_workers
@@ -501,9 +511,13 @@ class SimulationRunner:
         for agent in self.agents.values():
             agent.close()
 
-        create_video(
-            str(self.exp_logdir / "frames" / "%05d.png"),
-            output_file=str(self.exp_logdir / "video.mp4"),
-            fps=self.params.run.video_fps,
-        )
+        if self.params.run.save_video:
+            try:
+                create_video(
+                    str(self.exp_logdir / "frames" / "%05d.png"),
+                    output_file=str(self.exp_logdir / "video.mp4"),
+                    fps=self.params.run.video_fps,
+                )
+            except Exception as e:
+                print(f"Error during video creation: {e}")
         # ---------------------------

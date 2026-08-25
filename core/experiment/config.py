@@ -111,6 +111,13 @@ class EnvConfig:
         default=False, metadata={"help": "Artifacts cannot be interacted with"}
     )
     init_agents: int = field(default=20, metadata={"help": "Initial agent count"})
+    init_artifacts: str | None = field(
+        default=None,
+        metadata={
+            "help": "Path to a JSON file with artifacts seeded by the environment: "
+            "a list of {name, payload, pose, lifespan, step} entries"
+        },
+    )
     init_human_agents: int = field(
         default=0, metadata={"help": "Initial human agent count"}
     )

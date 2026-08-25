@@ -70,6 +70,7 @@ class OpenGridWorld:
         viral_infection_radius: int = 2,
         viral_infection_probability: float = 0.3,
         viral_energy_multiplier: float = 2.0,
+        init_artifacts: str | Path | List[dict] | None = None,
         parent_authored_genome: bool = False,
     ):
         # grid/world params
@@ -98,6 +99,10 @@ class OpenGridWorld:
         self.viral_infection_radius = viral_infection_radius
         self.viral_infection_probability = viral_infection_probability
         self.viral_energy_multiplier = viral_energy_multiplier
+        # Artifacts seeded by the environment itself, as a list of entries
+        # {name, payload, pose, lifespan, step} or a path to a JSON file
+        # containing such a list
+        self.init_artifacts = self._load_init_artifacts(init_artifacts)
         self.reproduction_allowed = reproduction_allowed
         self.parent_authored_genome = parent_authored_genome
         self.food_mechanism = food_mechanism
@@ -139,6 +144,8 @@ class OpenGridWorld:
         self.expired_artifacts: List[Artifact] = []
         # Total number of viral infections so far. Used to name infection copies uniquely.
         self.viral_infection_count = 0
+        # Configured init artifacts not yet placed in the environment
+        self._pending_init_artifacts: List[dict] = list(self.init_artifacts)
 
         self.agent_pos: Dict[str, Tuple[int, int]] = {}
         self.agent_trajectories: Dict[str, List[Tuple[int, int]]] = {}
@@ -206,10 +213,25 @@ class OpenGridWorld:
         observation = self._build_obs(agent_tag)
         return observation, {"available_actions": avail_actions}
 
-    def add_artifact(self, pose, art_type, art_name, payload, creator, lifespan) -> str:
-        """Adds an artifact to the environment."""
-        if self.agent_energy[creator] < self.artifact_creation_cost:
+    def add_artifact(
+        self, pose, art_type, art_name, payload, creator, lifespan, to_inventory=None
+    ) -> str:
+        """Adds an artifact to the environment.
+
+        creator is normally an agent tag; creators that are not registered
+        agents (e.g. "environment" for seeded artifacts) pay no energy.
+        If to_inventory is an agent tag, the artifact is placed directly in
+        that agent's inventory instead of on the map at pose.
+        """
+        is_agent_creator = creator in self.agent_energy
+        if (
+            is_agent_creator
+            and self.agent_energy[creator] < self.artifact_creation_cost
+        ):
             return f"Failed. Agent does not have enough energy. Required: {self.artifact_creation_cost}"
+
+        if to_inventory is not None and to_inventory not in self.agent_registry:
+            return f"Failed. No agent {to_inventory} to receive the artifact"
 
         if art_type == "text":
             while art_name in self.artifacts:
@@ -228,11 +250,23 @@ class OpenGridWorld:
         else:
             return f"Artifact type: {art_type} is not a valid type. Only artifact valid types are: {list(ARTIFACT_TYPE.keys())}"
 
-        self.agent_energy[creator] -= self.artifact_creation_cost
-        self.artifacts_map[pose].add(art_name)
+        if is_agent_creator:
+            self.agent_energy[creator] -= self.artifact_creation_cost
         self.artifacts[art_name] = artifact
 
-        status = f"Created artifact {art_name} of type {art_type} at position {pose}."
+        if to_inventory is not None:
+            self.agent_inventories[to_inventory].add(art_name)
+            artifact.users[to_inventory].add(self.step_count)
+            status = (
+                f"Created artifact {art_name} of type {art_type} in "
+                f"{self.agent_names[to_inventory]}'s inventory."
+            )
+        else:
+            self.artifacts_map[pose].add(art_name)
+            status = (
+                f"Created artifact {art_name} of type {art_type} at position {pose}."
+            )
+
         if self.logger:
             self.logger.log(
                 time=self.step_count,
@@ -240,7 +274,8 @@ class OpenGridWorld:
                 artifact=artifact.serialize(),
                 position=pose,
                 agent_tag=creator,
-                agent_name=self.agent_names[creator],
+                agent_name=self.agent_names.get(creator, creator),
+                possessor_tag=to_inventory,
             )
         return status
 
@@ -354,6 +389,7 @@ class OpenGridWorld:
         self.artifacts = {}
         self.expired_artifacts = []
         self.viral_infection_count = 0
+        self._pending_init_artifacts = list(self.init_artifacts)
 
         poses = options.get("agent_poses")
         agent_poses = {tag: None for tag in self.agent_registry}
@@ -363,6 +399,9 @@ class OpenGridWorld:
         # place agents
         for tag in self.agent_registry:
             self._place_agent(tag, p=agent_poses[tag])
+
+        # Step-0 init artifacts are placed before the initial observations
+        self._seed_init_artifacts()
 
         if self.food_mechanism:
             self._seed_initial_food()
@@ -956,6 +995,11 @@ class OpenGridWorld:
         self._seed_viral_outbreak(infos)
         # ---------------------------
 
+        # Environment-seeded artifacts
+        # ---------------------------
+        self._seed_init_artifacts()
+        # ---------------------------
+
         # ---- Handle energy and time loss for all agents ----
         # Hosting viral artifacts multiplies the energy consumed per step
         for a in self.agent_registry:
@@ -1460,6 +1504,134 @@ class OpenGridWorld:
         dx = abs(pos_a[0] - pos_b[0])
         dy = abs(pos_a[1] - pos_b[1])
         return max(min(dx, self.grid_size - dx), min(dy, self.grid_size - dy))
+
+    def _load_init_artifacts(
+        self, init_artifacts: str | Path | List[dict] | None
+    ) -> List[dict]:
+        """Loads and validates the artifacts the environment seeds by itself.
+
+        Accepts a list of entries or a path to a JSON file containing one.
+        Each entry is {name, payload, pose, agent, lifespan, step}: only name
+        is required. The artifact appears on the map at pose (default: a
+        random free cell) or, if agent is given instead, directly in that
+        agent's inventory. lifespan defaults to -1 (never expires) and step
+        to 0 (seeded before the first timestep).
+        """
+        if init_artifacts is None:
+            return []
+        if isinstance(init_artifacts, (str, Path)):
+            with open(init_artifacts) as f:
+                init_artifacts = json.load(f)
+        if not isinstance(init_artifacts, list):
+            raise ValueError(
+                f"init_artifacts must be a list of entries, got {type(init_artifacts)}"
+            )
+
+        validated = []
+        for i, entry in enumerate(init_artifacts):
+            if not isinstance(entry, dict) or "name" not in entry:
+                raise ValueError(
+                    f"init_artifacts[{i}] must be a dict with at least a 'name' key, got {entry}"
+                )
+            art_type = entry.get("type", "text")
+            if art_type != "text":
+                raise ValueError(
+                    f"init_artifacts[{i}] ({entry['name']}): only 'text' artifacts can be "
+                    f"seeded, got type '{art_type}'. Viral artifacts are seeded through "
+                    "the viral_init_infected/viral_outbreak_step parameters."
+                )
+            pose = entry.get("pose")
+            agent = entry.get("agent")
+            if pose is not None and agent is not None:
+                raise ValueError(
+                    f"init_artifacts[{i}] ({entry['name']}): pose and agent are mutually "
+                    "exclusive; use pose for the map, agent for an inventory"
+                )
+            if pose is not None:
+                if len(pose) != 2:
+                    raise ValueError(
+                        f"init_artifacts[{i}] ({entry['name']}): pose must be [x, y], got {pose}"
+                    )
+                x, y = int(pose[0]), int(pose[1])
+                if not (0 <= x < self.grid_size and 0 <= y < self.grid_size):
+                    raise ValueError(
+                        f"init_artifacts[{i}] ({entry['name']}): pose {pose} outside the "
+                        f"{self.grid_size}x{self.grid_size} grid"
+                    )
+                pose = [x, y]
+            lifespan = int(entry.get("lifespan", -1))
+            if lifespan != -1 and lifespan <= 0:
+                raise ValueError(
+                    f"init_artifacts[{i}] ({entry['name']}): lifespan must be > 0 or -1, got {lifespan}"
+                )
+            step = int(entry.get("step", 0))
+            if step < 0:
+                raise ValueError(
+                    f"init_artifacts[{i}] ({entry['name']}): step cannot be negative, got {step}"
+                )
+            validated.append(
+                {
+                    "name": str(entry["name"]),
+                    "payload": str(entry.get("payload", "")),
+                    "pose": pose,
+                    "agent": str(agent) if agent is not None else None,
+                    "lifespan": lifespan,
+                    "step": step,
+                }
+            )
+        return validated
+
+    def _resolve_agent_ref(self, agent_ref: str) -> str | None:
+        """Resolves an agent tag or name to the tag of a living agent."""
+        if agent_ref in self.agent_registry:
+            return agent_ref
+        for tag, name in self.agent_names.items():
+            if name == agent_ref and tag in self.agent_registry:
+                return tag
+        return None
+
+    def _seed_init_artifacts(self):
+        """Places the configured init artifacts whose seeding step has been reached."""
+        remaining = []
+        for entry in self._pending_init_artifacts:
+            if entry["step"] > self.step_count:
+                remaining.append(entry)
+                continue
+
+            to_inventory = None
+            if entry.get("agent") is not None:
+                to_inventory = self._resolve_agent_ref(entry["agent"])
+                if to_inventory is None:
+                    print(
+                        f"⚠️  Failed to seed artifact {entry['name']}: no living agent "
+                        f"{entry['agent']} at step {self.step_count}"
+                    )
+                    continue
+                pose = self.agent_pos[to_inventory]
+            else:
+                pose = entry["pose"]
+                pose = tuple(pose) if pose is not None else self._random_free_pos()
+
+            lifespan = np.inf if entry["lifespan"] == -1 else entry["lifespan"]
+            status = self.add_artifact(
+                pose=pose,
+                art_type="text",
+                art_name=entry["name"],
+                payload=entry["payload"],
+                creator="environment",
+                lifespan=lifespan,
+                to_inventory=to_inventory,
+            )
+            if status.startswith("Created"):
+                where = (
+                    f"in {self.agent_names[to_inventory]}'s inventory"
+                    if to_inventory is not None
+                    else f"at {pose}"
+                )
+                print(f"🌱 Seeded artifact {entry['name']} {where} 🌱")
+            else:
+                print(f"⚠️  Failed to seed artifact {entry['name']}: {status}")
+        self._pending_init_artifacts = remaining
 
     def _seed_viral_outbreak(self, infos: dict):
         """Infects viral_init_infected random agents at step viral_outbreak_step."""
@@ -2032,6 +2204,7 @@ class OpenGridWorld:
                 self._serialize(art) for art in self.expired_artifacts
             ],
             "viral_infection_count": self.viral_infection_count,
+            "pending_init_artifacts": self._pending_init_artifacts,
             "agent_pos": {agent: enc_pos(pos) for agent, pos in self.agent_pos.items()},
             "agent_trajectories": agent_trajectories,
             "agent_avail_actions": self.agent_avail_actions,
@@ -2100,6 +2273,7 @@ class OpenGridWorld:
             if isinstance(art, Artifact)
         ]
         self.viral_infection_count = state_ckpt.get("viral_infection_count", 0)
+        self._pending_init_artifacts = state_ckpt.get("pending_init_artifacts", [])
         self.agent_pos = {
             agent: parse_pos(pos) for agent, pos in state_ckpt["agent_pos"].items()
         }
