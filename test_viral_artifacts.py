@@ -8,18 +8,19 @@ from pathlib import Path
 
 import numpy as np
 
+from core.environment.actions import ACTION_TEXT
 from core.environment.artifact import TextArtifact, ViralArtifact
 from core.environment.env import OpenGridWorld
 
 
-def make_env(tmp, **viral_kwargs):
+def make_env(tmp, food_mechanism=False, **viral_kwargs):
     env = OpenGridWorld(
         grid_size=20,
         vision_radius=3,
         init_agent_energy=50,
         lifespan=200,
         init_food=1,
-        food_mechanism=False,
+        food_mechanism=food_mechanism,
         use_inventory=True,
         log_path=tmp,
         verbose=0,
@@ -268,10 +269,105 @@ def test_multiplier_stacks_per_strain():
     print("PASS: energy multiplier compounds per hosted strain")
 
 
+def test_sick_beings_are_debilitated():
+    """Hosting a virus costs movement, stealing and appetite — but not speech."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        food_mechanism=True,  # give/take are gated on it
+        viral_infection_probability=0.0,  # no spread: b must stay healthy
+        viral_energy_multiplier=2.0,
+        viral_lifespan=3,
+    )
+    for tag in ("a", "b"):
+        env.add_agent(agent_tag=tag, agent_name=tag, agent_type="text")
+    env.restart_env(agent_poses={"a": (5, 5), "b": (5, 6)})
+    for tag in env.agent_registry:
+        env.agent_energy[tag] = 1000.0
+    # Freeze the food field so the cells this test places food on stay put
+    env._food_decay_rate = 0.0
+    env._food_spawn_rate = 0.0
+    env.food.clear()
+
+    env.infect_agent(agent_tag="a")
+
+    # Affordances: move survives (restricted), take does not, give does
+    avail_a = env._get_avail_actions("a")
+    assert "move" in avail_a, "a sick being must keep at least one action"
+    assert set(avail_a["move"]["params"]) == {"direction"}, avail_a["move"]["params"]
+    assert "stay" in avail_a["move"]["params"]["direction"]
+    assert "sick" in avail_a["move"]["description"]
+    assert "take" not in avail_a
+    assert "give" in avail_a, "a sick being can still hand energy over"
+
+    # The restriction is per-being: b is untouched
+    avail_b = env._get_avail_actions("b")
+    assert "take" in avail_b
+    assert avail_b["move"]["params"] == ACTION_TEXT["move"]["params"]
+
+    # Movement is refused, and the being is told why
+    pos_a = env.agent_pos["a"]
+    env.food[pos_a] = 10.0
+    e_before = env.agent_energy["a"]
+    _, _, _, _, infos = env.step(
+        {"a": {"action": "move", "message": "help me", "params": {"direction": "up"}}}
+    )
+    assert env.agent_pos["a"] == pos_a, "a sick being must not move"
+    assert "too sick to move" in infos["a"]["Action outcome"]
+
+    # No appetite: the food is left on the cell and gives nothing
+    assert env.food.get(pos_a) == 10.0, "a sick being must not eat the food"
+    assert "no appetite" in infos["a"]["Action outcome"]
+    assert env.agent_energy["a"] == e_before - 2.0, "only the viral drain applies"
+
+    # Both restrictions are reported, neither overwrites the other
+    assert infos["a"]["Action outcome"].count("You are") == 2
+
+    # It can still speak, and it is told it is sick every step
+    assert env.msg_raw["a"] == "help me"
+    assert "Health" in infos["a"] and "sick" in infos["a"]["Health"]
+    assert "Health" not in infos["b"]
+
+    # Stealing is refused even if the action is forced through
+    _, _, _, _, infos = env.step(
+        {"a": {"action": "take", "params": {"target": "b", "amount": 5}}}
+    )
+    assert env.agent_energy["b"] == 1000.0 - 2.0, "b must keep its energy"
+    assert "too sick to take" in infos["a"]["Action outcome"]
+
+    # A healthy being is unaffected: b moves and eats normally
+    pos_b = env.agent_pos["b"]
+    target_b = (pos_b[0] + 1, pos_b[1])
+    env.food[target_b] = 7.0
+    e_before = env.agent_energy["b"]
+    env.step({"b": {"action": "move", "params": {"direction": "down"}}})
+    assert env.agent_pos["b"] == target_b
+    assert target_b not in env.food, "a healthy being still eats"
+    assert env.agent_energy["b"] == e_before + 7.0 - 1.0
+
+    # Recovery restores everything, including the untouched food underfoot
+    assert get_viral(env, "a") == [], "infection should have expired by now"
+    avail_a = env._get_avail_actions("a")
+    assert avail_a["move"]["params"] == ACTION_TEXT["move"]["params"]
+    e_before = env.agent_energy["a"]
+    _, _, _, _, infos = env.step(
+        {"a": {"action": "move", "params": {"direction": "stay"}}}
+    )
+    assert pos_a not in env.food, "the food should be eaten once recovered"
+    assert env.agent_energy["a"] == e_before + 10.0 - 1.0
+    assert "Health" not in infos["a"]
+    env._get_avail_actions("a")
+    assert "take" in env.agent_avail_actions["a"]
+    env.step({"a": {"action": "move", "params": {"direction": "up"}}})
+    assert env.agent_pos["a"] != pos_a, "a recovered being moves again"
+    print("PASS: sick beings cannot move, steal or eat, and are told so")
+
+
 if __name__ == "__main__":
     test_spread_and_energy()
     test_contact_only_spread()
     test_recovery()
     test_outbreak()
     test_multiplier_stacks_per_strain()
+    test_sick_beings_are_debilitated()
     print("\nAll viral artifact checks passed ✅")

@@ -83,6 +83,12 @@ Traps:
   agents can see each other.
 - `init_agent_energy < 0` means *infinite* energy: `agent_energy` becomes
   `np.inf`, which is not valid JSON. Guard before serializing.
+- **"Infected" is derived state, not a flag** — it means "has a `ViralArtifact` in
+  `agent_inventories[tag]`", read via `_count_viral`. It now gates three things:
+  `move` (still offered, but restricted to `stay`), `take` (withdrawn), and the
+  *implicit* eat in `step`. So `move` is no longer unconditionally available, and
+  ending a turn on a food cell no longer implies eating it. Don't add a parallel
+  `infected` flag; it will drift.
 - `env.reset(agent_tag)` resets **one agent**. The whole-world reset is
   `env.restart_env(seed=..., **options)`.
 - `env.add_agent` requires `agent_name` as well as `agent_tag`.
