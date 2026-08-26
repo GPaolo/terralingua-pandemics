@@ -55,6 +55,28 @@ def test_lethality():
     print("PASS: probability 0 (the default) never kills")
 
 
+def test_deaths_record_the_infection():
+    """Starving while sick is a disease death for the accounting."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(tmp, viral_death_probability=0.0, viral_energy_multiplier=2.0)
+    env.infect_agent(agent_tag="a")
+    env.agent_energy["a"] = 1.0  # the doubled drain starves it this step
+    step_one(env)
+    assert "a" not in env.agent_registry
+    events = [json.loads(line) for line in open(tmp / "open_gridworld.log")]
+    died = [e for e in events if e.get("event") == "AGENT_DIED"][-1]
+    assert died["reason"] == "hunger" and died["infected"] is True, died
+
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(tmp)
+    env.agent_energy["a"] = 0.5
+    step_one(env)
+    events = [json.loads(line) for line in open(tmp / "open_gridworld.log")]
+    died = [e for e in events if e.get("event") == "AGENT_DIED"][-1]
+    assert died["reason"] == "hunger" and died["infected"] is False, died
+    print("PASS: every death records whether the being was infected")
+
+
 def test_hazard_ramps_with_sickness_age():
     tmp = Path(tempfile.mkdtemp())
     env = make_env(tmp, viral_death_probability=0.5, viral_lifespan=10)
@@ -149,6 +171,7 @@ def test_world_log_and_checkpoint():
 
 if __name__ == "__main__":
     test_lethality()
+    test_deaths_record_the_infection()
     test_hazard_ramps_with_sickness_age()
     test_recovered_are_immune()
     test_incubating_do_not_roll()

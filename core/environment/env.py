@@ -1900,6 +1900,9 @@ class OpenGridWorld:
         Remove an agent from the environment.
         Dead agents leave behind food in their position.
         """
+        # A bedridden host that starves still died of the disease: record the
+        # infection alongside the reason, or the CFR undercounts.
+        died_infected = self._count_viral(agent) > 0
         announcement = f"☠️ Agent {self.agent_names[agent]}({agent}) died "
         if reason == "sickness":
             announcement += "of the sickness."
@@ -1989,6 +1992,7 @@ class OpenGridWorld:
                 step=self.step_count,
                 energy=energy,
                 reason=reason,
+                infected=died_infected,
             )
 
     def _count_food_agents_nearby(self, pos):

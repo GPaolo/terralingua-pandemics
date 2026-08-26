@@ -66,6 +66,8 @@ class JSONLogger:
                 self.data[agent_tag]["age"] = time - self.data[agent_tag]["spawn_time"]
                 self.data[agent_tag]["energy"] = data["energy"]
                 self.data[agent_tag]["death_reason"] = data["reason"]
+                # "hunger" while infected is still a disease death for CFR
+                self.data[agent_tag]["died_infected"] = data.get("infected", False)
                 self.data[agent_tag]["agent_name"] = data["agent_name"]
             else:
                 raise ValueError(f"Dead agent {agent_tag} was never logged in")
