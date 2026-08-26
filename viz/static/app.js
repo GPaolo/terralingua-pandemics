@@ -719,10 +719,55 @@ function chartCard({ title, series, format, step, heroSuffix }) {
       <line class="grid-line" x1="${PAD}" y1="${sy(y1)}" x2="${W - PAD}" y2="${sy(y1)}"/>
       <line class="axis-line" x1="${PAD}" y1="${H - PAD}" x2="${W - PAD}" y2="${H - PAD}"/>
       <line class="cursor-line" x1="${cursorX}" y1="0" x2="${cursorX}" y2="${H}"/>
+      <line class="hover-line" x1="0" y1="0" x2="0" y2="${H}" visibility="hidden"/>
       ${paths}
     </svg>
     ${series.length > 1 ? `<div class="chart-legend">${series.map((s) =>
       `<span><span class="swatch" style="background:${s.color}"></span> ${esc(s.name)}</span>`).join("")}</div>` : ""}`;
+
+  // Crosshair + shared tooltip: every series' level at the hovered step.
+  const svg = card.querySelector("svg");
+  const hover = card.querySelector(".hover-line");
+  const tip = document.createElement("div");
+  tip.className = "chart-tip";
+  tip.hidden = true;
+  card.appendChild(tip);
+  // Level at t = the last point at or before it, matching how the lines read.
+  const levelAt = (pts, t) => {
+    let v = null;
+    for (const p of pts) { if (p[0] <= t) v = p[1]; else break; }
+    return v;
+  };
+  const ts = series[0].points.map((p) => p[0]);
+  svg.addEventListener("mousemove", (e) => {
+    if (!ts.length) return;
+    const rect = svg.getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * W;
+    const raw = x0 + ((px - PAD) / (W - 2 * PAD)) * (x1 - x0);
+    const t = ts.reduce((b, c) => (Math.abs(c - raw) < Math.abs(b - raw) ? c : b), ts[0]);
+    hover.setAttribute("x1", sx(t));
+    hover.setAttribute("x2", sx(t));
+    hover.removeAttribute("visibility");
+    tip.innerHTML = `<div class="tip-step">step ${t}</div>` + series.map((s) => {
+      const v = levelAt(s.points, t);
+      return `<div><span class="swatch" style="background:${s.color}"></span>${esc(s.name)} <b>${v == null ? "—" : format(v)}</b></div>`;
+    }).join("");
+    tip.hidden = false;
+    const cardRect = card.getBoundingClientRect();
+    const xInCard = e.clientX - cardRect.left;
+    tip.style.top = `${svg.getBoundingClientRect().top - cardRect.top + 4}px`;
+    if (xInCard > cardRect.width * 0.55) {
+      tip.style.left = "";
+      tip.style.right = `${cardRect.width - xInCard + 8}px`;
+    } else {
+      tip.style.right = "";
+      tip.style.left = `${xInCard + 8}px`;
+    }
+  });
+  svg.addEventListener("mouseleave", () => {
+    tip.hidden = true;
+    hover.setAttribute("visibility", "hidden");
+  });
   return card;
 }
 
