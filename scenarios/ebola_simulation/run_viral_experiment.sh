@@ -52,10 +52,12 @@ python main.py \
     --reproduction_cost     50 \
     \
     `# Viral artifacts — a contact-transmitted virus with R0 ~= 2.5, from a single index case` \
-    `# One timestep is one day. An infection has two phases: it incubates silently for` \
+    `# One timestep is one day. An infection has three phases: it incubates silently for` \
     `# viral_incubation_min..max days (the host moves, eats and infects nobody, and is told` \
-    `# nothing), then turns symptomatic for viral_lifespan days — frozen, no appetite,` \
-    `# infectious, draining energy fast. Latency does NOT eat the infectious window.` \
+    `# nothing), turns symptomatic-but-ambulatory for viral_mobile_days ("dry": feverish,` \
+    `# draining energy, mildly infectious, still moving — this is how it travels), then` \
+    `# goes "wet" for the rest of viral_lifespan — frozen, no appetite, fully infectious.` \
+    `# Latency does NOT eat the infectious window.` \
     `#` \
     `# R0 ~= probability x avg_agents_within_radius x infectious_steps, where infectious_steps` \
     `# is viral_lifespan. At radius 1 the neighbourhood is the 8 adjacent cells. Ebola's` \
@@ -78,6 +80,8 @@ python main.py \
     --viral_incubation_min  2 `# min days between catching the virus and falling ill (silent, not infectious)` \
     --viral_incubation_max  21 `# max days between catching the virus and falling ill. Set both to 0 for no latency` \
     --viral_lifespan        12 `# infectious period: days an infection stays symptomatic (-1: permanent until the host dies). Ebola: onset -> death 6-16d, onset -> recovery ~2 weeks` \
+    --viral_mobile_days     4 `# the first symptomatic days are "dry" (fever, weakness): the host still moves, eats and acts — this is when the disease travels` \
+    --viral_mobile_infectiousness 0.3 `# transmission multiplier during those dry days; "wet" symptoms afterwards are bedridden and fully infectious` \
     --viral_dropped_lifespan 10 `# steps a viral artifact dropped at its host's death survives on the map, still spreading (-1: forever)` \
     --viral_infection_radius 1 `# max distance in cells at which a viral artifact can spread (1 = contact: the 8 adjacent cells)` \
     --viral_infection_probability 0.15 `# per-step probability of catching it from a symptomatic being on an adjacent cell. Calibrate this to hit the target R0` \

@@ -416,6 +416,10 @@ class ViralArtifact(Artifact):
         self.strain = strain if strain is not None else name
         # Steps left before the host develops symptoms. 0 means symptomatic now.
         self.incubation = incubation
+        # Symptomatic steps already lived through. The environment compares it
+        # to viral_mobile_days to split the illness into an early ambulatory
+        # ("dry") phase and the bedridden ("wet") one.
+        self.days_symptomatic = 0
         # Set when the host dies: how the artifact presents to agents and the
         # dashboard ("remains_of_<host>"). The internal name never changes, so
         # transmission chains keyed on it stay intact.

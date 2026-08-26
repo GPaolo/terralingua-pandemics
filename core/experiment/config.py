@@ -246,6 +246,20 @@ class EnvConfig:
         default=-1,
         metadata={"help": "Steps a viral infection lasts in an agent's inventory (-1 = forever)"},
     )
+    viral_mobile_days: int = field(
+        default=0,
+        metadata={
+            "help": "First symptomatic days the host stays ambulatory ('dry' phase): "
+            "it can still move, eat and act. 0 = bedridden at symptom onset"
+        },
+    )
+    viral_mobile_infectiousness: float = field(
+        default=1.0,
+        metadata={
+            "help": "Multiplier on viral_infection_probability while the host is "
+            "in its ambulatory days"
+        },
+    )
     viral_outbreak_step: int = field(
         default=0,
         metadata={"help": "Timestep at which the viral outbreak happens"},
@@ -285,6 +299,12 @@ class EnvConfig:
         )
         assert self.viral_contact_multiplier >= 0, (
             "viral_contact_multiplier cannot be negative"
+        )
+        assert self.viral_mobile_days >= 0, (
+            "viral_mobile_days cannot be negative"
+        )
+        assert 0.0 <= self.viral_mobile_infectiousness <= 1.0, (
+            "viral_mobile_infectiousness must be in [0, 1]"
         )
         assert 0.0 <= self.viral_death_probability <= 1.0, (
             "viral_death_probability must be in [0, 1]"

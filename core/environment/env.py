@@ -52,6 +52,14 @@ SICK_AGENT_NOTICE = (
     "beings can still give you energy."
 )
 
+#: The early, still-ambulatory phase of the illness (viral_mobile_days > 0):
+#: the host is told it is unwell but keeps every affordance. Same rule as
+#: above — symptoms, never the virus by name.
+FEVERISH_AGENT_NOTICE = (
+    "You have fallen ill: you are feverish and weak, and something is "
+    "draining your energy. For now you can still move, eat and act."
+)
+
 
 class OpenGridWorld:
     """Same grid rules as before, plus agent registry & coded messages."""
@@ -91,6 +99,8 @@ class OpenGridWorld:
         viral_infection_radius: int = 1,
         viral_infection_probability: float = 0.3,
         viral_contact_multiplier: float = 1.0,
+        viral_mobile_days: int = 0,
+        viral_mobile_infectiousness: float = 1.0,
         viral_energy_multiplier: float = 2.0,
         viral_death_probability: float = 0.0,
         ppe_protection: float = 0.1,
@@ -135,6 +145,13 @@ class OpenGridWorld:
         # Touching (give/take energy) scales the exposure: physical contact
         # carries more risk than standing nearby. Burials have their own knob.
         self.viral_contact_multiplier = viral_contact_multiplier
+        # The illness has two symptomatic phases: for the first
+        # viral_mobile_days the host is "dry" — feverish but ambulatory, and
+        # transmitting at viral_mobile_infectiousness x the usual rate. After
+        # that it is bedridden: frozen, no appetite, fully infectious. 0 mobile
+        # days reproduces the old behaviour (bedridden at symptom onset).
+        self.viral_mobile_days = viral_mobile_days
+        self.viral_mobile_infectiousness = viral_mobile_infectiousness
         self.viral_energy_multiplier = viral_energy_multiplier
         # Per-step chance that a symptomatic agent dies of the sickness
         self.viral_death_probability = viral_death_probability
@@ -562,8 +579,10 @@ class OpenGridWorld:
             infos[agent_tag] = {"available_actions": avail_actions}
             # Matters on --resume: agents sick before the checkpoint would
             # otherwise get their first prompt back without the notice.
-            if self._count_sick(agent_tag) > 0:
+            if self._count_bedridden(agent_tag) > 0:
                 infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
+            elif self._count_sick(agent_tag) > 0:
+                infos[agent_tag]["Health"] = FEVERISH_AGENT_NOTICE
 
         self._log_world_state()
 
@@ -595,8 +614,10 @@ class OpenGridWorld:
     def _count_sick(self, agent_tag: str) -> int:
         """How many of this agent's infections have finished incubating.
 
-        This, not _count_viral, is what gates behaviour: an incubating host
-        moves, eats, steals and spreads nothing, and is told nothing.
+        Symptomatic in either phase: this gates what the host feels (the
+        health notice), the energy drain and whether it transmits at all.
+        What the host can *do* is gated by _count_bedridden — a "dry" host
+        still moves, eats and acts.
         """
         return sum(
             1
@@ -604,6 +625,33 @@ class OpenGridWorld:
             if isinstance(self.artifacts.get(name), ViralArtifact)
             and self.artifacts[name].symptomatic
         )
+
+    def _count_bedridden(self, agent_tag: str) -> int:
+        """How many of this agent's infections are past the ambulatory phase.
+
+        A symptomatic infection spends its first viral_mobile_days "dry":
+        the host is feverish but keeps every affordance. From then on it is
+        bedridden — cannot move, take, bury or eat. This, not _count_sick,
+        gates behaviour.
+        """
+        return sum(
+            1
+            for name in self.agent_inventories[agent_tag]
+            if isinstance(self.artifacts.get(name), ViralArtifact)
+            and self.artifacts[name].symptomatic
+            and self.artifacts[name].days_symptomatic >= self.viral_mobile_days
+        )
+
+    def _hosted_infectiousness(self, artifact: ViralArtifact) -> float:
+        """Transmission multiplier for a hosted infection.
+
+        Reduced while the host is still ambulatory ("dry" symptoms), full
+        once bedridden. Ground artifacts (remains) never pass through here:
+        a corpse is always fully infectious.
+        """
+        if artifact.days_symptomatic < self.viral_mobile_days:
+            return self.viral_mobile_infectiousness
+        return 1.0
 
     def _count_ppe(self, agent_tag: str) -> int:
         """How many PPE artifacts this agent carries (protection does not stack)."""
@@ -697,13 +745,14 @@ class OpenGridWorld:
                 )
 
             move = (0, 0)
-            # A viral artifact past its incubation makes an agent sick: it
-            # cannot move, steal energy or eat until the infection clears.
-            # _get_avail_actions already withholds those affordances;
-            # re-checking here keeps the rule true even for a hand-driven
-            # step() and, unlike the silent coercion below, tells the agent why
-            # nothing happened. An agent still incubating is unaffected.
-            sick = self._count_sick(agent) > 0
+            # A viral artifact past its ambulatory phase makes an agent
+            # bedridden: it cannot move, steal energy or eat until the
+            # infection clears. _get_avail_actions already withholds those
+            # affordances; re-checking here keeps the rule true even for a
+            # hand-driven step() and, unlike the silent coercion below, tells
+            # the agent why nothing happened. An agent still incubating — or
+            # symptomatic but still in its "dry" days — is unaffected.
+            sick = self._count_bedridden(agent) > 0
 
             # Get action name, message and params
             # ---------------------------
@@ -1372,6 +1421,10 @@ class OpenGridWorld:
 
         # Inventory
         updated_inventory = defaultdict(set)
+        # Infections that lived a symptomatic step now: their dry-day clock
+        # advances only after this step's spread pass, so the phase an
+        # infection transmits at is the phase its host acted in.
+        symptomatic_ticked = []
         for agent_tag, inventory in self.agent_inventories.items():
             for art_name in inventory:
                 artifact = self.artifacts[art_name]
@@ -1381,6 +1434,8 @@ class OpenGridWorld:
                 if isinstance(artifact, ViralArtifact) and artifact.incubation > 0:
                     artifact.incubation -= 1
                 elif artifact.remaining_time is not None:
+                    if isinstance(artifact, ViralArtifact):
+                        symptomatic_ticked.append(art_name)
                     artifact.remaining_time -= 1
 
                 if self.artifacts[art_name].remaining_time <= 0:
@@ -1418,6 +1473,12 @@ class OpenGridWorld:
         if not self.inert_artifacts:
             self._heal_at_health_centers(infos)
             self._spread_viral_artifacts(infos)
+        # Now the spread has used this step's phase, the dry-day clocks move
+        # (healed or expired infections are gone from self.artifacts already)
+        for art_name in symptomatic_ticked:
+            artifact = self.artifacts.get(art_name)
+            if isinstance(artifact, ViralArtifact):
+                artifact.days_symptomatic += 1
         self._seed_viral_outbreak(infos)
         # ---------------------------
 
@@ -1480,8 +1541,10 @@ class OpenGridWorld:
             if agent_tag not in infos:
                 infos[agent_tag] = {}
             infos[agent_tag]["available_actions"] = avail_actions
-            if self._count_sick(agent_tag) > 0:
+            if self._count_bedridden(agent_tag) > 0:
                 infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
+            elif self._count_sick(agent_tag) > 0:
+                infos[agent_tag]["Health"] = FEVERISH_AGENT_NOTICE
             if self.use_colors:
                 agent_color = self.agent_colors.get(agent_tag, "no color")
                 infos[agent_tag]["Your color"] = agent_color
@@ -2344,6 +2407,7 @@ class OpenGridWorld:
                 risk = (
                     self.viral_infection_probability
                     * self.viral_contact_multiplier
+                    * self._hosted_infectiousness(artifact)
                     * self._infection_protection(dst)
                 )
                 if self.rng.random() >= risk:
@@ -2371,11 +2435,13 @@ class OpenGridWorld:
         cells directly adjacent to the source, diagonals included and wrapping
         across the grid seam.
 
-        Note hosts are immobilised and stop foraging while sick, so they are
-        stationary sources and healthy agents have to walk into them. Realised
-        R0 therefore falls below the free-mixing estimate annotated in
-        run_viral_experiment.sh; measure it with analysis_scripts/compute_r0.py
-        rather than trusting the formula.
+        Note hosts are immobilised and stop foraging once bedridden, so late
+        infections are stationary sources that healthy agents have to walk
+        into — only the "dry" ambulatory days (at viral_mobile_infectiousness
+        x the rate) carry the virus around. Realised R0 therefore falls below
+        the free-mixing estimate annotated in run_viral_experiment.sh; measure
+        it with analysis_scripts/compute_r0.py rather than trusting the
+        formula.
         """
         # Snapshot current infections so that copies created now do not
         # spread in the same step. Sources are (host_tag, position, artifact),
@@ -2404,6 +2470,11 @@ class OpenGridWorld:
             tag: self._infection_protection(tag) for tag in self.agent_registry
         }
         for host, source_pos, artifact in infections:
+            # A "dry" host transmits at a fraction of the full rate; remains
+            # on the ground (host None) are always fully infectious.
+            rate = self.viral_infection_probability
+            if host is not None:
+                rate *= self._hosted_infectiousness(artifact)
             for target in self.agent_registry:
                 if target == host:
                     continue
@@ -2412,10 +2483,7 @@ class OpenGridWorld:
                 distance = self._toroidal_distance(source_pos, self.agent_pos[target])
                 if distance > self.viral_infection_radius:
                     continue
-                if (
-                    self.rng.random()
-                    >= self.viral_infection_probability * protection[target]
-                ):
+                if self.rng.random() >= rate * protection[target]:
                     continue
 
                 art_name = self.infect_agent(
@@ -2447,14 +2515,15 @@ class OpenGridWorld:
     def _get_avail_actions(self, agent_tag: str):
         agent_position = self.agent_pos[agent_tag]
 
-        # A viral artifact past its incubation makes an agent sick: it cannot
-        # move or steal energy (and, in step(), it stops eating). "move" itself
-        # stays on the list, restricted to "stay", so that a sick agent alone in
-        # an empty patch is never left with an empty action list — the prompt
-        # would then offer it nothing to choose and every reply would fail to
-        # parse. An agent still incubating keeps the full action set: nothing
-        # here may hint that it is carrying anything.
-        sick = self._count_sick(agent_tag) > 0
+        # A viral artifact past its ambulatory phase makes an agent bedridden:
+        # it cannot move or steal energy (and, in step(), it stops eating).
+        # "move" itself stays on the list, restricted to "stay", so that a sick
+        # agent alone in an empty patch is never left with an empty action
+        # list — the prompt would then offer it nothing to choose and every
+        # reply would fail to parse. An agent still incubating keeps the full
+        # action set: nothing here may hint that it is carrying anything. A
+        # "dry" symptomatic agent keeps it too — it is feverish, not frozen.
+        sick = self._count_bedridden(agent_tag) > 0
 
         available_actions = {"move": deepcopy(ACTION_TEXT["move"])}
         if sick:
