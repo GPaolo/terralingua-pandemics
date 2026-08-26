@@ -84,6 +84,11 @@ async function openRun(name) {
   $("#legend-unknown").hidden = state.meta.food_source !== "observed";
   $("#legend-infected").hidden = !state.meta.has_viral;
   $("#legend-incubating").hidden = !state.meta.has_viral;
+  // One key per persona role, wearing the shape its beings are drawn with.
+  const roles = [...new Set(Object.values(state.meta.agent_roles || {}))].sort();
+  $("#legend-roles").innerHTML = roles.map((role) =>
+    `<span class="key"><span style="color:var(--being)">${ROLE_GLYPHS[roleShape(role)]}</span> ${esc(roleLabel(role))}</span>`
+  ).join("");
 
   setStatus(state.meta.status);
   state.following = state.meta.status === "live";
@@ -212,8 +217,60 @@ function agentColor(a) {
 const PPE_GLYPH = "⛨";
 const hasPPE = (a) => (a?.[7] ?? 0) > 0;
 
+/* Recovered wears its own geometry (a --recovered ring on the map, a dashed
+   line on the chart), never the fill: the fill-hue space is spent, and the
+   validator puts every candidate below the floor against blue or grey. */
+const RECOVERED_GLYPH = "✓";
+const isRecovered = (a) => (a?.[8] ?? 0) > 0 && (a?.[5] ?? 0) === 0;
+
 /* Personas rename beings; tags stay the identity keys everywhere. */
 const nameOf = (tag) => state.meta?.agent_names?.[tag] || tag;
+
+/* A persona role gets its own marker shape (fill and ring behave the same on
+   every shape). Shapes go to roles in alphabetical order, never cycled: roles
+   beyond the registry fall back to the circle. To add shapes, extend SHAPES
+   ({sides, start?, scale?, star?}), its glyph, and ROLE_SHAPE_ORDER.
+   scale evens out visual weight against the circle; the square is axis-
+   aligned so it never reads as the artifact diamond. */
+const SHAPES = {
+  circle: {},
+  triangle: { sides: 3, scale: 1.35 },
+  square: { sides: 4, start: -Math.PI / 4, scale: 1.15 },
+  pentagon: { sides: 5, scale: 1.12 },
+  hexagon: { sides: 6, scale: 1.12 },
+  triangle_down: { sides: 3, start: Math.PI / 2, scale: 1.35 },
+  star: { sides: 5, star: true, scale: 1.5 },
+};
+const ROLE_SHAPE_ORDER = ["triangle", "square", "pentagon", "hexagon", "triangle_down", "star"];
+const ROLE_GLYPHS = {
+  circle: "●", triangle: "▲", square: "■", pentagon: "⬟",
+  hexagon: "⬢", triangle_down: "▼", star: "★",
+};
+const roleOf = (tag) => state.meta?.agent_roles?.[tag] || null;
+const roleLabel = (role) => role.replace(/_/g, " ");
+
+function roleShape(role) {
+  if (!role) return "circle";
+  const roles = [...new Set(Object.values(state.meta?.agent_roles || {}))].sort();
+  const i = roles.indexOf(role);
+  return i >= 0 && i < ROLE_SHAPE_ORDER.length ? ROLE_SHAPE_ORDER[i] : "circle";
+}
+
+function traceBeing(ctx, shape, cx, cy, r) {
+  ctx.beginPath();
+  const def = SHAPES[shape] || SHAPES.circle;
+  if (!def.sides) return ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  const rr = r * (def.scale ?? 1.12);
+  const start = def.start ?? -Math.PI / 2;
+  const points = def.star ? def.sides * 2 : def.sides;
+  for (let k = 0; k < points; k++) {
+    const rad = def.star && k % 2 ? rr * 0.45 : rr;
+    const ang = start + (k * 2 * Math.PI) / points;
+    const px = cx + rad * Math.cos(ang), py = cy + rad * Math.sin(ang);
+    k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.closePath();
+}
 
 /* Health is the one thing that does move a being off --s1, and it moves along the
    reserved status ramp rather than into a categorical slot: amber while the
@@ -325,14 +382,31 @@ function drawMap() {
     ctx.globalAlpha = 1;
   }
 
-  // Artifacts: a diamond, so shape carries them even where color cannot.
-  ctx.fillStyle = cssVar("--s6");
-  for (const [x, y] of state.world.artifacts) {
+  // Artifacts: shape carries the kind even where color cannot. Authored
+  // artifacts are a diamond, remains a cross saltire, health centers a plus.
+  for (const [x, y, , kind] of state.world.artifacts) {
     const cx = y * cell + cell / 2, cy = x * cell + cell / 2, r = Math.max(2, cell * 0.32);
     ctx.beginPath();
-    ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy);
-    ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy);
-    ctx.closePath(); ctx.fill();
+    if (kind === "remains") {
+      ctx.strokeStyle = cssVar("--status-critical");
+      ctx.lineWidth = Math.max(1.5, cell * 0.14);
+      ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r);
+      ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r);
+      ctx.stroke();
+      $("#legend-remains").hidden = false;
+    } else if (kind === "health_center") {
+      ctx.strokeStyle = cssVar("--recovered");
+      ctx.lineWidth = Math.max(2, cell * 0.18);
+      ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy);
+      ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r);
+      ctx.stroke();
+      $("#legend-health-center").hidden = false;
+    } else {
+      ctx.fillStyle = cssVar("--s6");
+      ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy);
+      ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy);
+      ctx.closePath(); ctx.fill();
+    }
   }
 
   drawTrail(ctx, cell, n);
@@ -341,16 +415,23 @@ function drawMap() {
      compete for the same pixels. They used to be concentric rings a pixel apart,
      which at mid cell sizes meant the selection ring painted straight over the
      infection ring and a sick being looked healthy the moment you clicked it. */
-  for (const [, a] of Object.entries(state.world.agents)) {
+  for (const [tag, a] of Object.entries(state.world.agents)) {
     const [x, y] = a;
     const cx = y * cell + cell / 2, cy = x * cell + cell / 2;
     const r = Math.max(1.5, cell * 0.36);
     ctx.fillStyle = healthColor(healthOf(a), a);
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    traceBeing(ctx, roleShape(roleOf(tag)), cx, cy, r);
+    ctx.fill();
     if (hasPPE(a)) $("#legend-ppe").hidden = false;
 
-    // A 2px surface ring keeps overlapping marks legible.
-    ctx.strokeStyle = cssVar("--surface");
+    // A 2px surface ring keeps overlapping marks legible; a recovered being
+    // wears the --recovered ring there instead (fill keeps its base state).
+    if (isRecovered(a)) {
+      ctx.strokeStyle = cssVar("--recovered");
+      $("#legend-recovered").hidden = false;
+    } else {
+      ctx.strokeStyle = cssVar("--surface");
+    }
     ctx.lineWidth = Math.min(2, cell * 0.12);
     ctx.stroke();
   }
@@ -428,7 +509,8 @@ function drawAgentList() {
     pill.innerHTML =
       `<span class="chip" style="background:${healthColor(health, here)}"></span>${esc(nameOf(tag))}` +
       (health ? ` ${HEALTH_GLYPH[health]}` : "") +
-      (hasPPE(here) ? ` ${PPE_GLYPH}` : "");
+      (hasPPE(here) ? ` ${PPE_GLYPH}` : "") +
+      (isRecovered(here) ? ` ${RECOVERED_GLYPH}` : "");
     pill.onclick = () => selectAgent(tag);
     box.appendChild(pill);
   }
@@ -465,12 +547,14 @@ function drawAgentDetail() {
     <div class="agent-head">
       <span class="agent-chip" style="background:${healthColor(health, a)}"></span>
       <span class="agent-name" title="${esc(tag)}">${esc(nameOf(tag))}</span>
+      ${roleOf(tag) ? `<span class="subtitle">${esc(roleLabel(roleOf(tag)))}</span>` : ""}
       ${health === "sick"
         ? '<span class="badge" style="color:var(--status-critical)">☣ sick</span>'
         : health === "incubating"
         ? '<span class="badge" style="color:var(--status-warning)">⧖ incubating</span>'
         : ""}
       ${hasPPE(a) ? `<span class="badge" style="color:var(--s1)">${PPE_GLYPH} PPE</span>` : ""}
+      ${isRecovered(a) ? `<span class="badge" style="color:var(--recovered)">${RECOVERED_GLYPH} recovered</span>` : ""}
     </div>
     ${persona ? `<p class="persona">${esc(persona)}</p>` : ""}
     ${meter("Energy", energy, initE * 2, "--s3", energy == null ? "—" : Math.round(energy))}
@@ -578,7 +662,7 @@ function artifactEntry(a) {
   }
 
   const meta = [
-    `by ${esc(a.created_by ?? a.creator_tag ?? "?")}`,
+    `by ${esc(nameOf(a.created_by ?? a.creator_tag ?? "?"))}`,
     `step ${a.created_at ?? "?"}`,
     versions.length > 1 ? `v${cur.version}` : "",
     removed ? `gone at ${a.removed_at}` : "",
@@ -634,6 +718,10 @@ function drawCharts() {
   const pop = [{ name: "beings", points: zip(s.t, s.n_agents), color: cssVar("--being") }];
   if ((s.n_ppe || []).some((n) => n > 0)) {
     pop.push({ name: `${PPE_GLYPH} with PPE`, points: zip(s.t, s.n_ppe), color: cssVar("--s1") });
+  }
+  if ((s.n_recovered || []).some((n) => n > 0)) {
+    // Dashed: the geometry, not just the hue, separates it from the PPE line.
+    pop.push({ name: `${RECOVERED_GLYPH} recovered`, points: zip(s.t, s.n_recovered), color: cssVar("--recovered"), dash: true });
   }
   if (state.meta.has_viral) {
     // Same unit (a count of beings), so all three share one axis. Never two
@@ -702,6 +790,7 @@ function chartCard({ title, series, format, step, heroSuffix }) {
       return `${cmd}${sx(p[0])},${sy(p[1])}`;
     }).join("");
     return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2"
+             ${s.dash ? 'stroke-dasharray="5 3"' : ""}
              stroke-linejoin="round" stroke-linecap="round"/>`;
   }).join("");
 
@@ -864,13 +953,16 @@ function tooltipHtml(x, y) {
     // Plain text tooltip, so the glyph is the only channel available here.
     const health = healthOf(a);
     html += `<div><span class="tip-link" data-tag="${esc(tag)}">${esc(nameOf(tag))}</span>` +
+      `${roleOf(tag) ? ` (${esc(roleLabel(roleOf(tag)))})` : ""}` +
       `${health ? ` ${HEALTH_GLYPH[health]}` : ""}${hasPPE(a) ? ` ${PPE_GLYPH}` : ""}` +
+      `${isRecovered(a) ? ` ${RECOVERED_GLYPH}` : ""}` +
       `  energy ${a[2] ?? "∞"}</div>`;
     clickable++;
   }
-  for (const [ax, ay, name] of state.world.artifacts) {
+  for (const [ax, ay, name, kind] of state.world.artifacts) {
     if (ax !== x || ay !== y) continue;
-    html += `<div>◆ <span class="tip-link" data-art="${esc(name)}">${esc(name)}</span></div>`;
+    const mark = kind === "remains" ? "✕" : kind === "health_center" ? "✚" : "◆";
+    html += `<div>${mark} <span class="tip-link" data-art="${esc(name)}">${esc(name)}</span></div>`;
     clickable++;
   }
   return { html, clickable };

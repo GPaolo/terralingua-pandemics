@@ -24,6 +24,9 @@
   /* Beings: neutral grey base; --s1 blue is the PPE-carrier state. Validated
      vs blue/amber/red at ΔE 17.0 normal, 9.1 worst CVD pair. */
   --being: #898781;
+  /* Recovered: worn as a ring on the dot / a dashed chart line, never a fill —
+     no fill hue passes the floor against both blue and grey. */
+  --recovered: #1ac9d6;
 
   /* Categorical slots, fixed order. */
   --s1: #3987e5; /* blue   */
@@ -64,6 +67,7 @@
   --axis: #c3c2b7;
   --border: rgba(11, 11, 11, 0.1);
   --being: #898781;
+  --recovered: #0a9ac0;
   --s1: #2a78d6;
   --s2: #eb6834;
   --s3: #1baf7a;
@@ -234,6 +238,8 @@ footer.charts {
 /* Beings are discs on the map, so their keys are round rather than square. */
 .swatch.being { background: var(--being); border-radius: 50%; }
 .swatch.ppe { background: var(--s1); border-radius: 50%; }
+/* Recovered is a ring on the map, so its key is hollow too. */
+.swatch.recovered { background: transparent; border: 2px solid var(--recovered); border-radius: 50%; }
 .swatch.infected { background: var(--status-critical); border-radius: 50%; }
 .swatch.incubating { background: var(--status-warning); border-radius: 50%; }
 

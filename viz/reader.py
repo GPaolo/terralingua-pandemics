@@ -224,6 +224,16 @@ class RunReader:
                 names[e["agent_tag"]] = e.get("agent_name") or e["agent_tag"]
         return names
 
+    def _agent_roles(self) -> Dict[str, str]:
+        """tag -> persona role, only for beings whose persona declares one."""
+        roles: Dict[str, str] = {}
+        for e in self._current_run_events():
+            if e.get("event") == "ENV_RESET":
+                roles.update(e.get("agent_roles") or {})
+            elif e.get("event") == "AGENT_ADDED" and e.get("agent_role"):
+                roles[e["agent_tag"]] = e["agent_role"]
+        return roles
+
     def meta(self) -> dict:
         params = self.params
         env = params.get("env", {})
@@ -267,6 +277,7 @@ class RunReader:
             "agent_fields": self._world_meta.get("agent_fields", []),
             "agents": tags,
             "agent_names": self._agent_names(),
+            "agent_roles": self._agent_roles(),
             "genomes": self._genomes,
             "personas": self._personas,
             "has_viral": any(
@@ -289,27 +300,30 @@ class RunReader:
                 break
 
         food: Dict[tuple, float] = {}
-        artifacts: Dict[tuple, List[str]] = {}
+        artifacts: Dict[tuple, List[tuple]] = {}
         for ts in range(base, t + 1):
             r = self._steps.get(ts)
             if r is None:
                 continue
+            # Schema 5 artifact entries are [x, y, name, kind]; older files
+            # have no kind. Cells store (name, kind) pairs either way.
             if r["kind"] == "key":
                 food = {(x, y): v for x, y, v in r["food"].get("set", [])}
                 artifacts = {}
-                for x, y, name in r["artifacts"].get("set", []):
-                    artifacts.setdefault((x, y), []).append(name)
+                for x, y, name, *rest in r["artifacts"].get("set", []):
+                    artifacts.setdefault((x, y), []).append((name, *rest))
             else:
                 for x, y, v in r["food"].get("add", []):
                     food[(x, y)] = v
                 for x, y in r["food"].get("del", []):
                     food.pop((x, y), None)
-                for x, y, name in r["artifacts"].get("add", []):
-                    artifacts.setdefault((x, y), []).append(name)
-                for x, y, name in r["artifacts"].get("del", []):
+                for x, y, name, *rest in r["artifacts"].get("add", []):
+                    artifacts.setdefault((x, y), []).append((name, *rest))
+                for x, y, name, *rest in r["artifacts"].get("del", []):
                     cell = artifacts.get((x, y))
-                    if cell and name in cell:
-                        cell.remove(name)
+                    entry = (name, *rest)
+                    if cell and entry in cell:
+                        cell.remove(entry)
                         if not cell:
                             del artifacts[(x, y)]
 
@@ -319,7 +333,9 @@ class RunReader:
             "agents": r["agents"],
             "food": [[x, y, v] for (x, y), v in food.items()],
             "artifacts": [
-                [x, y, n] for (x, y), names in artifacts.items() for n in names
+                [x, y, *entry]
+                for (x, y), entries in artifacts.items()
+                for entry in entries
             ],
             "food_total": r.get("food_total", 0.0),
             "n_agents": r.get("n_agents", len(r["agents"])),
@@ -416,9 +432,9 @@ class RunReader:
             art = e.get("artifact")
             if not isinstance(art, dict) or "name" not in art:
                 continue
-            # Viral, PPE and health-spot artifacts are simulation state, not
+            # Viral, PPE and health-center artifacts are simulation state, not
             # authored content; the map and the being badges cover them.
-            if art.get("art_type") in ("viral", "ppe", "health_spot"):
+            if art.get("art_type") in ("viral", "ppe", "health_center"):
                 continue
             event = e.get("event")
             if event == "ARTIFACT_ADDED":
@@ -504,6 +520,16 @@ class RunReader:
                     1
                     for a in self._steps[t].get("agents", {}).values()
                     if len(a) > 7 and a[7]
+                )
+                for t in ts
+            ],
+            # SIR-style recovered: cleared at least one infection (index 8,
+            # schema 4) and currently hosts none.
+            "n_recovered": [
+                sum(
+                    1
+                    for a in self._steps[t].get("agents", {}).values()
+                    if len(a) > 8 and a[8] and not a[5]
                 )
                 for t in ts
             ],

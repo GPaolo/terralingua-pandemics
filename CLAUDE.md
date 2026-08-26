@@ -87,6 +87,12 @@ Traps:
 - **"Infected" is derived state, not a flag** — it means "has a `ViralArtifact` in
   `agent_inventories[tag]`", read via `_count_viral`. Don't add a parallel
   `infected` flag; it will drift.
+- **Recovery is permanent immunity.** An infection cleared alive (natural
+  expiry or a health center) bumps `agent_recoveries[tag]`, and `infect_agent`
+  refuses any agent with a recovery on record — spread, outbreak and burial
+  risk all pass through it. Death is a per-symptomatic-step roll whose hazard
+  ramps 0 → `viral_death_probability` across the infectious window
+  (`_death_hazard`); an incubating carrier never rolls.
 - **Infected ≠ sick.** A `ViralArtifact` carries an `incubation` countdown and a
   `symptomatic` property. `_count_viral` counts both phases; `_count_sick` counts
   only the symptomatic ones, and **that** is what gates behaviour: `move` (still
@@ -141,6 +147,14 @@ schema-1 file still renders. Schema 2 added `n_sick` at index 6 alongside the
 per-step `n_sick` scalar; `n_viral - n_sick` is the silent-carrier count.
 Schema 3 added `n_ppe` at index 7 (PPE artifacts carried; protection is the
 min over the inventory, never a product — `_infection_protection`).
+Schema 4 added `n_recovered` at index 8 (infections cleared alive, by cure or
+natural expiry — deaths don't count). Schema 5 widened map artifact entries to
+`[x, y, display_name, kind]` (kind: text/ppe/health_center/remains; ground
+viral artifacts present as `remains_of_<host>` while their internal name — the
+one transmission chains key on — never changes). "Recovered" on screen means
+`n_recovered > 0 and n_viral == 0`, worn as a `--recovered` ring on the dot
+and a dashed chart line, never a fill: no fill hue passes the legibility
+floor against both the PPE blue and the base grey.
 
 ## Charts
 
@@ -159,7 +173,10 @@ per-being palette — reserved red sits below the legibility floor against both 
 orange and the magenta slot (ΔE 6.8 and 9.0, floor 15), so a healthy being would
 read as a sick one. Identity is carried by the brackets, the trail, the tooltip
 and the Beings list. PPE is glyphed `⛨` (`PPE_GLYPH`) wherever health is glyphed,
-so hue is never the only channel. Selection and infection must also never share a geometry: they were
+so hue is never the only channel. Persona **roles** are the marker's *shape*
+(`roleShape`: ▲ ■ ⬟ ⬢ assigned to roles alphabetically, never cycled — a fifth
+role falls back to the circle; the square is axis-aligned so it never reads as
+the artifact diamond). Fill, ring and glyphs behave identically on every shape. Selection and infection must also never share a geometry: they were
 concentric rings a pixel apart, and at mid cell sizes the selection ring painted
 straight over the infection ring.
 
