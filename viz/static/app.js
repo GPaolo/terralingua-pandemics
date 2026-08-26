@@ -635,7 +635,12 @@ function drawCharts() {
     format: (v) => Math.round(v).toLocaleString(),
   }));
 
-  const pop = [{ name: "beings", points: zip(s.t, s.n_agents), color: cssVar("--s1") }];
+  // Total population wears the same neutral grey as the base being on the map;
+  // blue is the PPE-carrier state there too, so the chart and map agree.
+  const pop = [{ name: "beings", points: zip(s.t, s.n_agents), color: cssVar("--being") }];
+  if ((s.n_ppe || []).some((n) => n > 0)) {
+    pop.push({ name: `${PPE_GLYPH} with PPE`, points: zip(s.t, s.n_ppe), color: cssVar("--s1") });
+  }
   if (state.meta.has_viral) {
     // Same unit (a count of beings), so all three share one axis. Never two
     // scales. Reserved status colors, matching the map, each labelled with its

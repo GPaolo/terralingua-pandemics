@@ -486,4 +486,14 @@ class RunReader:
                 self._steps[t].get("n_sick", self._steps[t].get("n_infected", 0))
                 for t in ts
             ],
+            # Carriers counted from the agent rows (n_ppe is index 7, schema 3);
+            # rows from older runs are shorter and count as 0.
+            "n_ppe": [
+                sum(
+                    1
+                    for a in self._steps[t].get("agents", {}).values()
+                    if len(a) > 7 and a[7]
+                )
+                for t in ts
+            ],
         }
