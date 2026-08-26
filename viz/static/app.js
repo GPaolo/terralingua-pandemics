@@ -212,6 +212,9 @@ function agentColor(a) {
 const PPE_GLYPH = "⛨";
 const hasPPE = (a) => (a?.[7] ?? 0) > 0;
 
+/* Personas rename beings; tags stay the identity keys everywhere. */
+const nameOf = (tag) => state.meta?.agent_names?.[tag] || tag;
+
 /* Health is the one thing that does move a being off --s1, and it moves along the
    reserved status ramp rather than into a categorical slot: amber while the
    infection is still incubating, red once it shows symptoms. Amber sits ~48 dE
@@ -421,10 +424,11 @@ function drawAgentList() {
     const pill = document.createElement("button");
     pill.className = "agent-pill" + (tag === state.selected ? " sel" : "");
     pill.style.opacity = here ? 1 : 0.35;
-    pill.title = here ? "" : "not present at this step";
+    pill.title = (nameOf(tag) === tag ? "" : `${tag}${here ? "" : " — "}`) +
+      (here ? "" : "not present at this step");
     const health = healthOf(here);
     pill.innerHTML =
-      `<span class="chip" style="background:${healthColor(health, here)}"></span>${esc(tag)}` +
+      `<span class="chip" style="background:${healthColor(health, here)}"></span>${esc(nameOf(tag))}` +
       (health ? ` ${HEALTH_GLYPH[health]}` : "") +
       (hasPPE(here) ? ` ${PPE_GLYPH}` : "");
     pill.onclick = () => selectAgent(tag);
@@ -437,7 +441,7 @@ function drawAgentDetail() {
   const tag = state.selected;
   const a = tag && state.world && state.world.agents[tag];
   if (!a) {
-    box.innerHTML = `<p class="empty">${tag ? esc(tag) + " is not in the world at this step." : "No being selected."}</p>`;
+    box.innerHTML = `<p class="empty">${tag ? esc(nameOf(tag)) + " is not in the world at this step." : "No being selected."}</p>`;
     return;
   }
   const [x, y, energy, age, nInv] = a;
@@ -461,7 +465,7 @@ function drawAgentDetail() {
   box.innerHTML = `
     <div class="agent-head">
       <span class="agent-chip" style="background:${healthColor(health, a)}"></span>
-      <span class="agent-name">${esc(tag)}</span>
+      <span class="agent-name" title="${esc(tag)}">${esc(nameOf(tag))}</span>
       ${health === "sick"
         ? '<span class="badge" style="color:var(--status-critical)">☣ sick</span>'
         : health === "incubating"
@@ -597,7 +601,7 @@ function artifactEntry(a) {
       <span>${esc(e.agent_tag)} ${e.action?.startsWith("destroy") ? "destroyed" : "edited"}</span>
       <b>step ${e.t}</b></div>`).join("")}
     ${Object.entries(readsBy).map(([tag, r]) => `<div class="stat-row">
-      <span>${esc(tag)} read ×${r.n}</span><b>last step ${r.last}</b></div>`).join("")}
+      <span>${esc(nameOf(tag))} read ×${r.n}</span><b>last step ${r.last}</b></div>`).join("")}
   </details>`;
 }
 
@@ -777,7 +781,7 @@ function showChain() {
     <div class="chain-node${c.t > state.step ? " future" : ""}" style="margin-left:${depth * 18}px">
       ${depth ? '<span class="subtitle">↳</span>' : ""}
       <span style="color:var(--status-critical)">☣</span>
-      <span class="who" style="color:${agentColor()}" data-tag="${esc(c.host)}">${esc(c.host)}</span>
+      <span class="who" style="color:${agentColor()}" data-tag="${esc(c.host)}">${esc(nameOf(c.host))}</span>
       <span class="subtitle">step ${c.t} · ${esc(c.artifact)}` +
         `${c.secondary ? ` · spread to ${c.secondary}` : ""}` +
         `${c.ended_at == null ? " · ongoing" : ""}</span>
@@ -815,7 +819,7 @@ function tooltipHtml(x, y) {
     if (a[0] !== x || a[1] !== y) continue;
     // Plain text tooltip, so the glyph is the only channel available here.
     const health = healthOf(a);
-    html += `<div><span class="tip-link" data-tag="${esc(tag)}">${esc(tag)}</span>` +
+    html += `<div><span class="tip-link" data-tag="${esc(tag)}">${esc(nameOf(tag))}</span>` +
       `${health ? ` ${HEALTH_GLYPH[health]}` : ""}${hasPPE(a) ? ` ${PPE_GLYPH}` : ""}` +
       `  energy ${a[2] ?? "∞"}</div>`;
     clickable++;

@@ -204,6 +204,16 @@ class RunReader:
             return "live"
         return "stalled"
 
+    def _agent_names(self) -> Dict[str, str]:
+        """tag -> display name, from the live event log (personas rename agents)."""
+        names: Dict[str, str] = {}
+        for e in self._current_run_events():
+            if e.get("event") == "ENV_RESET":
+                names.update(e.get("agent_names") or {})
+            elif e.get("event") == "AGENT_ADDED" and e.get("agent_tag"):
+                names[e["agent_tag"]] = e.get("agent_name") or e["agent_tag"]
+        return names
+
     def meta(self) -> dict:
         params = self.params
         env = params.get("env", {})
@@ -246,6 +256,7 @@ class RunReader:
             "sighting_agreement": self._world_meta.get("sighting_agreement"),
             "agent_fields": self._world_meta.get("agent_fields", []),
             "agents": tags,
+            "agent_names": self._agent_names(),
             "genomes": self._genomes,
             "has_viral": any(
                 e.get("event") == "VIRAL_INFECTION"
@@ -393,6 +404,10 @@ class RunReader:
         for e in self._current_run_events():
             art = e.get("artifact")
             if not isinstance(art, dict) or "name" not in art:
+                continue
+            # Viral and PPE artifacts are simulation state, not authored content;
+            # the map, the transmission panel and the being badges cover them.
+            if art.get("art_type") in ("viral", "ppe"):
                 continue
             event = e.get("event")
             if event == "ARTIFACT_ADDED":
