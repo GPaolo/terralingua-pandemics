@@ -35,7 +35,7 @@
 
   <main>
     <section class="panel" id="map-panel">
-      <h2>World <span id="grid-dims"></span></h2>
+      <h2 title="Double-click to expand">World <span id="grid-dims"></span></h2>
       <div id="map-wrap">
         <canvas id="map"></canvas>
         <div id="tooltip"></div>
@@ -60,29 +60,34 @@
     <div class="gutter" id="gutter-side" title="Drag to resize; double-click to reset"></div>
 
     <section class="panel" id="chat-panel">
-      <h2>Chat <button id="chat-all" style="float:right;padding:1px 7px;font-size:11px">whole run</button></h2>
+      <h2 title="Double-click to expand">Chat <button id="chat-all" style="float:right;padding:1px 7px;font-size:11px">whole run</button></h2>
       <div id="chat-body"></div>
     </section>
 
     <section class="panel" id="artifacts-panel">
-      <h2>Artifacts</h2>
+      <h2 title="Double-click to expand">Artifacts</h2>
       <div id="artifacts-body"><p class="empty">No artifacts yet.</p></div>
     </section>
 
     <section class="panel" id="side">
-      <h2>Beings</h2>
+      <h2 title="Double-click to expand">Beings</h2>
       <div class="agent-list" id="agent-list"></div>
       <div id="agent-detail" style="margin-top:14px"></div>
     </section>
 
     <section class="panel" id="thought">
-      <h2>Action &amp; thought</h2>
+      <h2 title="Double-click to expand">Action &amp; thought</h2>
       <div id="thought-body"><p class="empty">Select a being to see what it did and what it was thinking.</p></div>
     </section>
   </main>
 
   <footer class="charts" id="charts"></footer>
 </div>
+
+<!-- Closes whichever panel a header double-click expanded. One fixed button
+     rather than one per panel: it survives the redraws that rebuild the chart
+     cards, and it never scrolls away with a long panel's content. -->
+<button id="zoom-close" hidden title="Close full screen (Esc)" aria-label="Close full screen">✕</button>
 
 <div class="overlay hidden" id="run-overlay">
   <div class="box">
