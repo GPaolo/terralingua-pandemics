@@ -12,6 +12,7 @@ from pprint import pprint
 from typing import Dict, List
 
 import numpy as np
+from faker import Faker
 from PIL import Image
 
 from core.agents.human_agent import HumanAgent
@@ -27,23 +28,47 @@ from core.utils.generic import create_video
 from core.utils.llm_utils import select_with_retry
 
 
-def load_personas(path: str | None) -> List[str]:
+def _draw_names(n: int, exclude: set) -> List[str]:
+    """Returns n unique human first names, avoiding those in exclude."""
+    fake = Faker()
+    names: List[str] = []
+    seen = set(exclude)
+    while len(names) < n:
+        name = fake.first_name()
+        if name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
+def load_personas(path: str | None) -> List[dict]:
     """Loads a personas JSON file and expands it into a per-agent list.
 
     The file is a list whose entries are either plain persona strings or
-    {"persona": str, "count": int} dicts (count defaults to 1). The returned
-    list holds one persona per agent, in file order.
+    {"persona": str, "name": str, "count": int} dicts (name optional, count
+    defaults to 1). Returns one {"persona", "name"} dict per agent, in file
+    order; name is None when not given. With count > 1 the explicit name goes
+    to the first agent and the rest get unique Faker-generated names.
     """
     if not path:
         return []
     with open(path) as f:
         entries = json.load(f)
-    personas: List[str] = []
+    dict_entries = [e for e in entries if isinstance(e, dict)]
+    explicit = {e["name"] for e in dict_entries if e.get("name")}
+    needed = sum(
+        int(e.get("count", 1)) - 1 for e in dict_entries if e.get("name")
+    )
+    pool = _draw_names(needed, explicit)
+    personas: List[dict] = []
     for entry in entries:
         if isinstance(entry, str):
-            personas.append(entry)
-        else:
-            personas.extend([entry["persona"]] * int(entry.get("count", 1)))
+            entry = {"persona": entry}
+        count = int(entry.get("count", 1))
+        name = entry.get("name")
+        for i in range(count):
+            expanded = name if i == 0 or not name else pool.pop()
+            personas.append({"persona": entry["persona"], "name": expanded})
     return personas
 
 
@@ -159,11 +184,14 @@ class SimulationRunner:
         persona_idx = 0
         for agent_tag, agent_type in init_agents.items():
             if agent_type == "text":
-                persona = personas[persona_idx] if persona_idx < len(personas) else ""
+                persona, agent_name = "", agent_tag
+                if persona_idx < len(personas):
+                    persona = personas[persona_idx]["persona"]
+                    agent_name = personas[persona_idx]["name"] or agent_tag
                 persona_idx += 1
                 self.agents[agent_tag] = LLMAgent(
                     agent_tag=agent_tag,
-                    agent_name=agent_tag,
+                    agent_name=agent_name,
                     log_dir=self.exp_logdir,
                     max_history=self.params.agent.max_history,
                     obs_style=self.params.agent.obs_style,
@@ -176,7 +204,7 @@ class SimulationRunner:
                 )
                 self.env.add_agent(
                     agent_tag=agent_tag,
-                    agent_name=agent_tag,
+                    agent_name=agent_name,
                     agent_type=init_agents[agent_tag],
                 )
             elif agent_type == "human":
@@ -366,6 +394,14 @@ class SimulationRunner:
                         )
                     print(f"🍼 Agent {agent_tag} reproduced. New agent: {child_tag} 🍼")
                     # No need to register agent in environment, as env already did so.
+
+                    # infos renders verbatim into the parent's next prompt:
+                    # strip runner plumbing so it only ever sees names, not tags
+                    plumbing = (
+                        "child_tag", "child_type", "offspring_genome", "parent_b_tag"
+                    )
+                    for key in plumbing:
+                        info["reproduction"].pop(key, None)
 
     def _cleanup_dead(self):
         """Cleans up agents that are done/dead."""

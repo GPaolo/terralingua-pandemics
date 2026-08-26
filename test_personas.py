@@ -1,10 +1,11 @@
-"""Tests for persona support: file loading, prompt injection, checkpointing."""
+"""Tests for persona support: file loading, prompt injection, checkpointing, names."""
 
 import json
 import tempfile
 from pathlib import Path
 
 from core.agents.llm_agent import LLMAgent
+from core.environment.env import OpenGridWorld
 from core.experiment.runner import load_personas
 
 
@@ -16,22 +17,46 @@ def test_load_personas():
                 [
                     {"persona": "You are a cautious doctor.", "count": 2},
                     "You are a reckless explorer.",
-                    {"persona": "You are a skeptic."},
+                    {"persona": "You are a skeptic.", "name": "Thomas"},
                 ]
             )
         )
         personas = load_personas(str(path))
         assert personas == [
-            "You are a cautious doctor.",
-            "You are a cautious doctor.",
-            "You are a reckless explorer.",
-            "You are a skeptic.",
+            {"persona": "You are a cautious doctor.", "name": None},
+            {"persona": "You are a cautious doctor.", "name": None},
+            {"persona": "You are a reckless explorer.", "name": None},
+            {"persona": "You are a skeptic.", "name": "Thomas"},
         ], personas
         print("PASS: personas file expands counts in order")
+
+        path.write_text(
+            json.dumps([{"persona": "You are a doctor.", "name": "Miriam", "count": 3}])
+        )
+        names = [p["name"] for p in load_personas(str(path))]
+        assert names[0] == "Miriam", names
+        assert all(n and n != "Miriam" for n in names[1:]), names
+        assert len(set(names)) == 3, names
+        print("PASS: count > 1 generates unique human names")
 
     assert load_personas(None) == []
     assert load_personas("") == []
     print("PASS: no personas file yields empty list")
+
+
+def test_name_propagates_in_env():
+    with tempfile.TemporaryDirectory() as tmp:
+        env = OpenGridWorld(
+            grid_size=12, vision_radius=4, init_food=10, log_path=Path(tmp),
+            food_zones=None, verbose=0, lifespan=50, init_agent_energy=50,
+        )
+        env.add_agent("being0", agent_name="Ezekiel", agent_type="text")
+        env.add_agent("being1", agent_name="being1", agent_type="text")
+        obs, _ = env.restart_env(agent_poses={"being0": (5, 5), "being1": (5, 6)})
+        assert "Ezekiel" in str(obs["being1"]), obs["being1"]
+        assert "being1" in str(obs["being0"]), obs["being0"]
+        env.close()
+        print("PASS: persona name is what other beings observe")
 
 
 def test_persona_in_system_prompt():
@@ -81,6 +106,7 @@ def test_persona_checkpoint_roundtrip():
 
 if __name__ == "__main__":
     test_load_personas()
+    test_name_propagates_in_env()
     test_persona_in_system_prompt()
     test_persona_checkpoint_roundtrip()
     print("All persona tests passed.")

@@ -55,8 +55,9 @@ class AgentConfig:
     personas: str | None = field(
         default=None,
         metadata={
-            "help": "Path to a JSON file with personas: a list of {persona, count} "
-            "entries (or plain strings) assigned to the initial agents in order"
+            "help": "Path to a JSON file with personas: a list of {persona, name, "
+            "count} entries (or plain strings) assigned to the initial agents in "
+            "order; name renames the agent everywhere (tag is unchanged)"
         },
     )
     use_colors: bool = field(
