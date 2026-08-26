@@ -84,8 +84,8 @@ def save(fig, out_dir, name):
 
 def plot_epidemic_curves(series, out_dir):
     ts = [s["t"] for s in series]
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 6.5), sharex=True,
-                                   gridspec_kw={"height_ratios": [3, 2]})
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(9, 8.5), sharex=True,
+                                        gridspec_kw={"height_ratios": [3, 2, 2]})
     entries = []
     for key, color, label, dashed in [
         ("susceptible", BEING, "susceptible", False),
@@ -102,6 +102,15 @@ def plot_epidemic_curves(series, out_dir):
     top_legend(ax1, ncols=4)
     ax1.margins(x=0.10)
 
+    # Same red as the sick count above: one entity, one color, its own axis
+    # (a share is a different unit than a count, never a second scale).
+    pct = [s["pct_sick"] for s in series]
+    ax2.plot(ts, pct, color=RED)
+    label_end(ax2, ts, pct, "sick / alive")
+    ax2.set_ylabel("% of alive")
+    ax2.set_title("Sick share of the living")
+    ax2.margins(x=0.10)
+
     # Red↔ink sits in the CVD 6–8 band, so cause is never hue-alone:
     # line style and the end labels carry it too.
     entries = []
@@ -110,14 +119,14 @@ def plot_epidemic_curves(series, out_dir):
         ("cum_deaths_other", INK2, "other causes", True),
     ]:
         ys = [s[key] for s in series]
-        ax2.plot(ts, ys, color=color, linestyle="--" if dashed else "-", label=label)
+        ax3.plot(ts, ys, color=color, linestyle="--" if dashed else "-", label=label)
         entries.append((ts, ys, label))
-    label_ends(ax2, entries)
-    ax2.set_xlabel("day")
-    ax2.set_ylabel("cumulative deaths")
-    ax2.set_title("Deaths by cause", pad=26)
-    top_legend(ax2, ncols=2)
-    ax2.margins(x=0.10)
+    label_ends(ax3, entries)
+    ax3.set_xlabel("day")
+    ax3.set_ylabel("cumulative deaths")
+    ax3.set_title("Deaths by cause", pad=26)
+    top_legend(ax3, ncols=2)
+    ax3.margins(x=0.10)
     return save(fig, out_dir, "epidemic_curves.png")
 
 

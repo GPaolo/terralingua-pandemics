@@ -204,6 +204,7 @@ def status_series(frames, infections=(), deaths=()):
             "susceptible": len(agents) - viral - recovered,
             "incubating": viral - sick,
             "sick": sick,
+            "pct_sick": 100.0 * sick / len(agents) if agents else 0.0,
             "recovered": recovered,
             "ppe_carriers": sum(1 for a in agents if a["n_ppe"] > 0),
             "new_infections": new_by_t.get(fr["t"] - 1, 0),

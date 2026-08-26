@@ -744,6 +744,18 @@ function drawCharts() {
   }
   box.appendChild(chartCard({ title: "Population", series: pop, format: (v) => v }));
 
+  if (state.meta.has_viral) {
+    // A share is a different unit than a count, so it gets its own card
+    // rather than a second scale on the population axis.
+    const nSick = s.n_sick || s.n_infected;
+    const pct = s.t.map((t, i) => [t, s.n_agents[i] ? (100 * (nSick[i] ?? 0)) / s.n_agents[i] : 0]);
+    box.appendChild(chartCard({
+      title: "☣ Sick share",
+      series: [{ name: "sick / alive", points: pct, color: cssVar("--status-critical") }],
+      format: (v) => v.toFixed(1) + "%",
+    }));
+  }
+
   // Sourced from the panel's artifact list, which the live stream keeps fresh.
   const artT = (state.artifacts || []).map((a) => a.created_at ?? 0).sort((a, b) => a - b);
   const cum = artT.map((t, i) => [t, i + 1]);
