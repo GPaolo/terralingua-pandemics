@@ -144,16 +144,21 @@ header.bar {
 
 input[type="range"] { accent-color: var(--s1); flex: 1; min-width: 180px; }
 
-/* The world map is square, so it is given a content-sized column and the full
-   height of the main area; letting it share a row with the chat wasted most of
-   a very wide panel on empty background. */
+/* Three columns, equal by default; the gutters between them are drag handles
+   (app.js sets --col-map / --col-side to pixel widths, double-click resets).
+   The column gap is small because each gutter contributes its own width. */
 main {
   display: grid;
-  grid-template-columns: auto minmax(280px, 1fr) 340px;
+  grid-template-columns: var(--col-map, 1fr) 6px minmax(220px, 1fr) 6px var(--col-side, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 10px 2px;
   min-height: 0;
 }
+
+.gutter { grid-row: 1 / 3; cursor: col-resize; border-radius: 3px; touch-action: none; }
+.gutter:hover, .gutter.dragging { background: var(--border); }
+#gutter-map { grid-column: 2; }
+#gutter-side { grid-column: 4; }
 
 .panel {
   background: var(--surface);
@@ -179,10 +184,10 @@ main {
 #map-wrap { flex: 1; position: relative; min-height: 0; display: grid; place-items: center; }
 #map { display: block; cursor: crosshair; }
 
-#chat-panel { grid-column: 2; grid-row: 1; }
-#artifacts-panel { grid-column: 2; grid-row: 2; max-height: 32vh; }
-#side { grid-column: 3; grid-row: 1; min-height: 330px; }
-#thought { grid-column: 3; grid-row: 2; max-height: 32vh; }
+#chat-panel { grid-column: 3; grid-row: 1; }
+#artifacts-panel { grid-column: 3; grid-row: 2; max-height: 32vh; }
+#side { grid-column: 5; grid-row: 1; min-height: 330px; }
+#thought { grid-column: 5; grid-row: 2; max-height: 32vh; }
 
 footer.charts {
   display: grid;

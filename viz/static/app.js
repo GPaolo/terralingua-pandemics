@@ -260,11 +260,9 @@ function mapGeometry() {
   const wrap = $("#map-wrap");
   const dpr = window.devicePixelRatio || 1;
   const n = state.meta.grid_size;
-  // The map lives in a content-sized column, so its own width is a consequence
-  // of this calculation -- measuring it here would be circular. Height comes
-  // from the row and is independent, so drive off that and cap the share of the
-  // window the map may take.
-  const size = Math.max(120, Math.min(wrap.clientHeight, document.body.clientWidth * 0.5));
+  // The column width is set by the grid (and the drag handles), so the map
+  // simply fills whichever of the wrap's dimensions is tighter.
+  const size = Math.max(120, Math.min(wrap.clientHeight, wrap.clientWidth));
   const cell = Math.max(2, Math.floor(size / n));
   const px = cell * n;
   canvas.width = px * dpr;
@@ -1000,9 +998,45 @@ function hookControls() {
   new ResizeObserver(() => drawMap()).observe($("#map-wrap"));
 }
 
+/* Column widths: equal thirds by default; dragging a gutter pins that side to a
+   pixel width (persisted), double-click resets it to its 1fr share. */
+function hookGutters() {
+  const main = document.querySelector("main");
+  const saved = JSON.parse(localStorage.getItem("tl-columns") || "{}");
+  for (const key of ["map", "side"]) {
+    if (saved[key]) main.style.setProperty(`--col-${key}`, saved[key]);
+    const gutter = $(`#gutter-${key}`);
+    gutter.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      gutter.setPointerCapture(e.pointerId);
+      gutter.classList.add("dragging");
+      const onMove = (ev) => {
+        const r = main.getBoundingClientRect();
+        const px = key === "map" ? ev.clientX - r.left : r.right - ev.clientX;
+        const width = Math.round(Math.max(220, Math.min(px, r.width * 0.6)));
+        main.style.setProperty(`--col-${key}`, width + "px");
+      };
+      const onUp = () => {
+        gutter.classList.remove("dragging");
+        gutter.removeEventListener("pointermove", onMove);
+        saved[key] = main.style.getPropertyValue(`--col-${key}`);
+        localStorage.setItem("tl-columns", JSON.stringify(saved));
+      };
+      gutter.addEventListener("pointermove", onMove);
+      gutter.addEventListener("pointerup", onUp, { once: true });
+    });
+    gutter.addEventListener("dblclick", () => {
+      main.style.removeProperty(`--col-${key}`);
+      delete saved[key];
+      localStorage.setItem("tl-columns", JSON.stringify(saved));
+    });
+  }
+}
+
 async function init() {
   hookControls();
   hookTooltip();
+  hookGutters();
   const runs = await loadRuns();
   const wanted = new URLSearchParams(location.search).get("run");
   const first = runs.find((r) => r.name === wanted) || runs.find((r) => r.status === "live") || runs[0];
