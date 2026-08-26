@@ -79,13 +79,13 @@ Traps:
   setting `env.rng` first) — it seeds the generator the placement helpers draw
   from. Placement used to hit the global `np.random`, which made layouts differ
   across processes and `test_world_state_log` flaky.
-- `give` / `take` are **contact**: offered and executed only against a being on
-  an adjacent cell (never yourself), and every transfer with a symptomatic
-  party rolls an exposure at `viral_infection_probability x
-  viral_contact_multiplier` (`_touch_exposure`, both directions, PPE applies).
+- `give` / `take` / `give_artifact` are **contact**: offered and executed only
+  against a being on an adjacent cell (never yourself), and every transfer
+  with a symptomatic party rolls an exposure at `viral_infection_probability
+  x viral_contact_multiplier` (`_touch_exposure`, both directions, PPE
+  applies) — handing PPE over can infect the health worker.
   `_get_nearby_agents(tag, r=...)` wraps the seam and defaults to vision
-  radius. `give_artifact` still works at vision range and rolls **no**
-  exposure — handing PPE over is deliberately(?) risk-free; revisit.
+  radius.
 - `init_agent_energy < 0` means *infinite* energy: `agent_energy` becomes
   `np.inf`, which is not valid JSON. Guard before serializing.
 - **"Infected" is derived state, not a flag** — it means "has a `ViralArtifact` in

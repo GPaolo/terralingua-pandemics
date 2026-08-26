@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from core.environment.artifact import ViralArtifact
+from core.environment.artifact import TextArtifact, ViralArtifact
 from core.environment.env import OpenGridWorld
 
 
@@ -135,6 +135,52 @@ def test_touch_transmits():
     print("PASS: give/take with a symptomatic being transmits by touch")
 
 
+def test_artifact_handover_is_contact():
+    """give_artifact needs adjacency and rolls the same touch exposure."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        viral_infection_probability=1.0,
+        viral_infection_radius=0,
+        viral_contact_multiplier=1.0,
+        viral_lifespan=-1,
+    )
+    for tag in ("a", "b", "c"):
+        env.add_agent(agent_tag=tag, agent_name=tag, agent_type="text")
+    env.restart_env(agent_poses={"a": (5, 5), "b": (5, 6), "c": (5, 9)})
+    for tag in env.agent_registry:
+        env.agent_energy[tag] = 100.0
+    env.infect_agent(agent_tag="a")
+    note = TextArtifact(
+        name="note", payload="hi", lifespan=np.inf, pose=(5, 5), creator="a",
+        creation_time=env.step_count,
+    )
+    env.artifacts["note"] = note
+    env.agent_inventories["a"].add("note")
+
+    # In view but not adjacent: refused, nothing moves, nothing transmits
+    env.agent_avail_actions["a"]["give_artifact"] = {
+        "params": {"artifact_name": "", "target_agent": ""}
+    }
+    _, _, _, _, infos = env.step(
+        {"a": {"action": "give_artifact",
+               "params": {"artifact_name": "note", "target_agent": "c"}}}
+    )
+    assert "adjacent" in infos["a"]["Artifact give status"]
+    assert "note" in env.agent_inventories["a"]
+    assert get_viral(env, "c") == []
+
+    # Adjacent: the handover lands and the touch transmits
+    _, _, _, _, infos = env.step(
+        {"a": {"action": "give_artifact",
+               "params": {"artifact_name": "note", "target_agent": "b"}}}
+    )
+    assert infos["a"]["Artifact give status"] == "Success"
+    assert "note" in env.agent_inventories["b"]
+    assert get_viral(env, "b"), "handing an object over is contact"
+    print("PASS: give_artifact is contact — adjacency plus a touch exposure")
+
+
 def test_touch_respects_incubation_and_ppe():
     """Incubating carriers transmit nothing; PPE protects the toucher."""
     tmp = Path(tempfile.mkdtemp())
@@ -173,5 +219,6 @@ if __name__ == "__main__":
     test_give_take_need_adjacency()
     test_give_wraps_across_seam()
     test_touch_transmits()
+    test_artifact_handover_is_contact()
     test_touch_respects_incubation_and_ppe()
     print("\nAll contact transmission checks passed ✅")

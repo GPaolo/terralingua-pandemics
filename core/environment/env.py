@@ -1256,7 +1256,8 @@ class OpenGridWorld:
             # Artifact gift
             # ---------------------------
             elif action_name == "give_artifact":
-                nearby_agents = self._get_nearby_agents(agent)
+                # Handing an object over is physical contact: adjacent only
+                nearby_agents = self._get_nearby_agents(agent, r=1)
                 art_to_gift = action_params.get("artifact_name")
 
                 # Find target agent
@@ -1292,12 +1293,16 @@ class OpenGridWorld:
                                 f"{self.agent_names[agent]} gave you "
                                 f"the artifact {art_to_gift}."
                             )
+                            self._touch_exposure(agent, target_tag, infos)
                     else:
                         status = (
                             f"Failed. No artifact with name {art_to_gift} in inventory"
                         )
                 else:
-                    status = f"Failed. Target being {target_name} not nearby."
+                    status = (
+                        f"Failed. Target being {target_name} is not on a "
+                        "cell adjacent to yours."
+                    )
 
                 infos[agent]["Artifact give status"] = status
                 self.logger.log(
@@ -2718,9 +2723,8 @@ class OpenGridWorld:
 
         # Agent interactions
         # ---------------------------
-        nearby_agents = bool(self._get_nearby_agents(agent_tag))
-
-        # give/take need an adjacent being, not merely one in view
+        # every being-to-being exchange is contact: an adjacent being, not
+        # merely one in view
         adjacent_agents = bool(self._get_nearby_agents(agent_tag, r=1))
         if adjacent_agents and self.food_mechanism:
             available_actions["give"] = deepcopy(ACTION_TEXT["give"])
@@ -2789,7 +2793,7 @@ class OpenGridWorld:
                         if self.artifacts[art_name].interactable:
                             available_actions.update(self.artifacts[art_name].actions)
 
-                    if transferable and nearby_agents:
+                    if transferable and adjacent_agents:
                         available_actions["give_artifact"] = deepcopy(
                             ACTION_TEXT["give_artifact"]
                         )

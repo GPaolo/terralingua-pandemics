@@ -56,10 +56,11 @@ ACTION_TEXT = {
         "params": {"name": "Name of the artifact to drop"},
     },
     "give_artifact": {
-        "description": "Gives an artifact from the inventory to a nearby being",
+        "description": "Gives an artifact from the inventory to a being on a "
+        "cell adjacent to yours. This is physical contact.",
         "params": {
             "artifact_name": "The name of the artifact",
-            "target_agent": "Name of a being in your field of view to give the artifact to.",
+            "target_agent": "Name of a being on a cell next to yours to give the artifact to.",
         },
     },
     "set_color": {

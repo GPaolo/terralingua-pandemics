@@ -100,8 +100,12 @@ def test_spread_and_energy():
     assert "give_artifact" not in avail
     assert not any("virus" in act for act in avail), avail
 
-    # With a text artifact too, drop/give appear but refuse to act on the virus
+    # With a text artifact too, drop/give appear but refuse to act on the
+    # virus. give_artifact is contact, so b moves next to a first.
     env.viral_infection_probability = 0.0  # freeze the dynamics
+    env.pos_to_agent.pop(tuple(env.agent_pos["b"]), None)
+    env.agent_pos["b"] = (5, 6)
+    env.pos_to_agent[(5, 6)] = "b"
     note = TextArtifact(
         name="note", payload="hi", lifespan=np.inf, pose=(5, 5), creator="a",
         creation_time=env.step_count,
