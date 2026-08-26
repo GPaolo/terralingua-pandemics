@@ -95,7 +95,6 @@ def test_checkpoint_no_double_seeding():
     env.restart_env(agent_poses={"a": (5, 5)})
     env.agent_energy["a"] = 1000.0
     env.step({})
-    env._get_food_distribution()
     ckpt = env.get_state_ckpt()
 
     # Restore into a fresh env configured with the same entries

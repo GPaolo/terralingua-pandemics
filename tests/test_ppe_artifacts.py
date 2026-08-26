@@ -198,8 +198,6 @@ def test_checkpoint_roundtrip():
     )
     env.add_agent(agent_tag="a", agent_name="a", agent_type="text")
     env.restart_env(agent_poses={"a": (5, 5)})
-    # get_state_ckpt needs a food distribution even with food_mechanism off
-    env._get_food_distribution()
 
     env2 = make_env(Path(tempfile.mkdtemp()))
     env2.add_agent(agent_tag="a", agent_name="a", agent_type="text")

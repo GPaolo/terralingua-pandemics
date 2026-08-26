@@ -2469,6 +2469,9 @@ class OpenGridWorld:
     @staticmethod
     def _serialize(obj):
         """Helper function to serialize objects for saving state."""
+        if obj is None:
+            return None
+
         if isinstance(obj, np.random.Generator):
             return {
                 "__type__": "rng",
@@ -2500,6 +2503,9 @@ class OpenGridWorld:
     @staticmethod
     def _deserialize(data):
         """Helper function to deserialize objects from saved state."""
+        if data is None:
+            return None
+
         if data["__type__"] == "str":
             return data["data"]
 

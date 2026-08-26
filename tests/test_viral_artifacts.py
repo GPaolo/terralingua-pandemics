@@ -163,8 +163,6 @@ def test_spread_and_energy():
     assert any(a.name == "virus_i1" for a in env.expired_artifacts)
 
     # Checkpoint roundtrip keeps viral state
-    # (get_state_ckpt needs a food distribution even with food_mechanism off)
-    env._get_food_distribution()
     ckpt = env.get_state_ckpt()
     tmp2 = Path(tempfile.mkdtemp())
     env2 = make_env(tmp2)
@@ -569,7 +567,6 @@ def test_incubation_survives_checkpoint():
     env.step({})
     assert env.artifacts[name].incubation == 6
 
-    env._get_food_distribution()
     env2 = make_env(Path(tempfile.mkdtemp()))
     env2.set_state_ckpt(env.get_state_ckpt())
     assert env2.artifacts[name].incubation == 6, "latency lost across a resume"
