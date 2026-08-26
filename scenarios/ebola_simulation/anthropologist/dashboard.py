@@ -205,7 +205,8 @@ def create_app(logs_root: Path, model: str, initial_run: str = None) -> FastAPI:
             key=lambda p: p.stat().st_mtime, reverse=True,
         )
         names = [p.name for p in found]
-        return {"runs": names, "model": model,
+        models = agent.MODELS if model in agent.MODELS else [model] + agent.MODELS
+        return {"runs": names, "model": model, "models": models,
                 "initial": initial_run if initial_run in names
                 else (names[0] if names else None)}
 
@@ -266,7 +267,16 @@ def create_app(logs_root: Path, model: str, initial_run: str = None) -> FastAPI:
         st = state_of(run)
         with st.lock:
             return {"events": list(st.events), "busy": st.busy,
-                    "auto_run": st.auto_run}
+                    "auto_run": st.auto_run, "model": st.model}
+
+    @app.post("/api/model")
+    def set_model(body: dict):
+        st = state_of(body.get("run"))
+        wanted = body.get("model")
+        if wanted not in agent.MODELS and wanted != model:
+            raise HTTPException(400, f"unknown model {wanted}")
+        st.model = wanted
+        return {"model": st.model}
 
     @app.post("/api/approve")
     def approve(body: dict):

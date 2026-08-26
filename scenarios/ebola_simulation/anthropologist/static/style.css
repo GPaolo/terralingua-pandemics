@@ -208,7 +208,15 @@ main {
 }
 
 #ask { border-top: 1px solid var(--border); padding: 10px 14px; }
-.autorun { display: block; color: var(--ink-2); font-size: 12px; margin-bottom: 8px; }
+.chatopts {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.autorun { color: var(--ink-2); font-size: 12px; }
+#modelsel { font-size: 12px; padding: 3px 8px; color: var(--ink-2); }
 .inputrow { display: flex; gap: 8px; position: relative; }
 #question { flex: 1; }
 #stop { color: var(--status-critical); border-color: var(--status-critical); }

@@ -115,10 +115,18 @@ def test_dashboard(run_dir: Path):
     assert client.get(f"/plots/{run}/report/nope.png").status_code == 404
     assert client.get("/api/state?run=..").status_code in (400, 404)
     ev = client.get(f"/api/events?run={run}").json()
-    assert ev == {"events": [], "busy": False, "auto_run": False}
+    assert ev == {"events": [], "busy": False, "auto_run": False,
+                  "model": "claude-opus-5"}
     assert client.post("/api/autorun",
                        json={"run": run, "enabled": True}).json()["auto_run"]
-    print("PASS: dashboard serves runs, state, report, plots; rejects traversal")
+    assert "claude-sonnet-5" in runs["models"]
+    r = client.post("/api/model", json={"run": run, "model": "claude-sonnet-5"})
+    assert r.json()["model"] == "claude-sonnet-5"
+    assert client.get(f"/api/events?run={run}").json()["model"] == "claude-sonnet-5"
+    assert client.post("/api/model",
+                       json={"run": run, "model": "gpt-9"}).status_code == 400
+    print("PASS: dashboard serves runs, state, report, plots, model switch; "
+          "rejects traversal")
 
 
 def test_approval_gate(run_dir: Path):

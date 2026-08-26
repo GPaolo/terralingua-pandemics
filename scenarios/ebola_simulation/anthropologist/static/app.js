@@ -34,6 +34,9 @@ async function loadRuns() {
   $("runsel").innerHTML = allRuns.map((n) =>
     `<option value="${escapeHtml(n)}" ${n === activeRun ? "selected" : ""}>${escapeHtml(n)}</option>`
   ).join("");
+  $("modelsel").innerHTML = r.models.map((m) =>
+    `<option value="${escapeHtml(m)}" ${m === r.model ? "selected" : ""}>${escapeHtml(m)}</option>`
+  ).join("");
   $("runchecks").innerHTML = allRuns.map((n) =>
     `<label><input type="checkbox" value="${escapeHtml(n)}" ${n === activeRun ? "checked" : ""} /> ${escapeHtml(n)}</label>`
   ).join("");
@@ -177,6 +180,10 @@ function render(data) {
   $("send").disabled = data.busy;
   $("stop").hidden = !data.busy;
   $("autorun").checked = data.auto_run;
+  const msel = $("modelsel");
+  if (data.model && msel.value !== data.model && document.activeElement !== msel) {
+    msel.value = data.model;
+  }
   const donePlots = data.events.some(
     (ev) => ev.type === "done" && !seenDone.has(ev.id) && seenDone.add(ev.id));
   if (donePlots) { loadState(); loadFiles(); } // a turn may add files/plots
@@ -200,6 +207,11 @@ $("ask").addEventListener("submit", async (e) => {
 
 $("autorun").addEventListener("change", async (e) => {
   await api("/api/autorun", { run: activeRun, enabled: e.target.checked });
+});
+
+$("modelsel").addEventListener("change", async (e) => {
+  try { await api("/api/model", { run: activeRun, model: e.target.value }); }
+  catch (err) { alert(err.message); }
 });
 
 $("stop").addEventListener("click", () =>

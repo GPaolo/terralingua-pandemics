@@ -14,9 +14,13 @@ import filetools
 from anthropic import beta_tool
 
 DEFAULT_MODEL = "claude-opus-5"
+MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-opus-4-8",
+          "claude-haiku-4-5", "claude-fable-5"]
+# Server-side refusal fallback exists on Opus 5 / Fable 5 only.
 FALLBACKS = dict(
     betas=["server-side-fallback-2026-06-01"], fallbacks=[{"model": "claude-opus-4-8"}]
 )
+FALLBACK_MODELS = ("claude-opus-5", "claude-fable-5")
 
 _HANDLER = None
 _OBSERVER = None
@@ -258,7 +262,7 @@ def run_turn(
             ],
             tools=[list_files, read_file, grep_files, write_note, run_python],
             messages=messages,
-            **FALLBACKS,
+            **(FALLBACKS if model.startswith(FALLBACK_MODELS) else {}),
         )
         last = None
         for message in runner:

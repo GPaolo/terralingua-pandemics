@@ -41,9 +41,12 @@
     <section id="chat">
       <div id="transcript"></div>
       <form id="ask">
-        <label class="autorun" title="Run model-written code without asking. The sandbox still applies, but approval is the real guardrail — leave off for untrusted runs.">
-          <input type="checkbox" id="autorun" /> auto-run code
-        </label>
+        <div class="chatopts">
+          <label class="autorun" title="Run model-written code without asking. The sandbox still applies, but approval is the real guardrail — leave off for untrusted runs.">
+            <input type="checkbox" id="autorun" /> auto-run code
+          </label>
+          <select id="modelsel" title="Model for the next turns of this run's chat"></select>
+        </div>
         <div class="inputrow">
           <div id="mentions" hidden></div>
           <input id="question" type="text" autocomplete="off"
