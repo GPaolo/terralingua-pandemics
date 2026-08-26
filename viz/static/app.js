@@ -641,7 +641,8 @@ function drawCharts() {
   }
   box.appendChild(chartCard({ title: "Population", series: pop, format: (v) => v }));
 
-  const artT = (s.artifacts || []).map((a) => a.t).sort((a, b) => a - b);
+  // Sourced from the panel's artifact list, which the live stream keeps fresh.
+  const artT = (state.artifacts || []).map((a) => a.created_at ?? 0).sort((a, b) => a - b);
   const cum = artT.map((t, i) => [t, i + 1]);
   box.appendChild(chartCard({
     title: "Artifacts created",
@@ -650,11 +651,18 @@ function drawCharts() {
     step: true,
   }));
 
+  // Cost rides in the tokens hero; the server only attaches cum_cost when the
+  // model is priced, so local models never show a made-up dollar figure.
   const tok = s.tokens || [];
+  const tokNow = tok.filter((r) => r.t <= state.step).pop();
+  const cost = tokNow?.cum_cost;
   box.appendChild(chartCard({
     title: "LLM tokens",
     series: [{ name: "cumulative", points: tok.map((r) => [r.t, r.cum_input + r.cum_output]), color: cssVar("--s4") }],
     format: (v) => v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "k" : v,
+    heroSuffix: cost != null
+      ? ` · $${cost >= 100 ? cost.toFixed(0) : cost >= 1 ? cost.toFixed(2) : cost.toFixed(3)}`
+      : "",
   }));
 
   if (state.viral?.chain?.length) {
@@ -664,10 +672,13 @@ function drawCharts() {
 
 const zip = (a, b) => a.map((t, i) => [t, b[i]]);
 
-function chartCard({ title, series, format, step }) {
+function chartCard({ title, series, format, step, heroSuffix }) {
   const card = document.createElement("section");
   card.className = "panel chart";
-  const latest = series[0].points.length ? series[0].points[series[0].points.length - 1][1] : 0;
+  // The hero says "at step N", so it must be the value at the scrubbed step,
+  // not the run's final one.
+  const upto = series[0].points.filter((p) => p[0] <= state.step);
+  const latest = upto.length ? upto[upto.length - 1][1] : 0;
 
   const W = 300, H = 92, PAD = 4;
   const all = series.flatMap((s) => s.points);
@@ -689,7 +700,7 @@ function chartCard({ title, series, format, step }) {
   const cursorX = sx(state.step);
   card.innerHTML = `
     <h2>${esc(title)}</h2>
-    <div class="hero">${format(latest)} <small>at step ${state.step}</small></div>
+    <div class="hero">${format(latest)}${heroSuffix || ""} <small>at step ${state.step}</small></div>
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(title)}">
       <line class="grid-line" x1="${PAD}" y1="${sy(y1)}" x2="${W - PAD}" y2="${sy(y1)}"/>
       <line class="axis-line" x1="${PAD}" y1="${H - PAD}" x2="${W - PAD}" y2="${H - PAD}"/>

@@ -28,6 +28,55 @@ STATIC_DIR = Path(__file__).parent / "static"
 #: How often the SSE stream re-reads the log directory while a run is live.
 POLL_SECONDS = 1.0
 
+#: model name -> prices or None, cached because the litellm import is slow.
+_PRICE_CACHE: Dict[str, Optional[tuple]] = {}
+
+
+def _model_prices(model: Optional[str]) -> Optional[tuple]:
+    """($/input token, $/output token) from litellm's price table, trying the
+    name as-is and through the router's MODEL_MAP; None when unknown."""
+    if not model:
+        return None
+    if model not in _PRICE_CACHE:
+        prices = None
+        try:
+            import litellm
+            from core.experiment.llm_router import MODEL_MAP
+
+            for name in (model, MODEL_MAP.get(model)):
+                entry = litellm.model_cost.get(name) if name else None
+                if entry and entry.get("input_cost_per_token") is not None:
+                    prices = (
+                        entry["input_cost_per_token"],
+                        entry.get("output_cost_per_token") or 0.0,
+                    )
+                    break
+        except Exception:
+            prices = None
+        _PRICE_CACHE[model] = prices
+    return _PRICE_CACHE[model]
+
+
+def _token_series(reader) -> list:
+    """Cumulative token counts, priced per producing model when known.
+
+    Rows without a model fall back to the run's model; models litellm does not
+    price (the locally hosted ones) genuinely cost nothing per token.
+    """
+    tokens = reader.token_totals()
+    default_model = reader.params.get("agent", {}).get("model")
+    cum_cost = 0.0
+    priced = False
+    for row in tokens:
+        for model, bucket in row.pop("by_model").items():
+            prices = _model_prices(model or default_model)
+            if prices:
+                priced = True
+                cum_cost += bucket["input"] * prices[0] + bucket["output"] * prices[1]
+        if priced:
+            row["cum_cost"] = cum_cost
+    return tokens
+
 
 def create_app(logs_root: Path) -> FastAPI:
     app = FastAPI(title="TerraLingua Dashboard")
@@ -148,14 +197,7 @@ def create_app(logs_root: Path) -> FastAPI:
     @app.get("/api/runs/{name}/series")
     def run_series(name: str):
         reader = get_reader(name)
-        return {
-            **reader.series(),
-            "tokens": reader.token_totals(),
-            "artifacts": [
-                {"t": a.get("created_at", 0), "name": a.get("name")}
-                for a in reader.artifacts()
-            ],
-        }
+        return {**reader.series(), "tokens": _token_series(reader)}
 
     @app.get("/api/runs/{name}/viral")
     def run_viral(name: str):
@@ -254,7 +296,8 @@ def create_app(logs_root: Path) -> FastAPI:
                         # transmission panel never appears.
                         "has_viral": meta["has_viral"],
                         "status": reader.status(),
-                        "series": reader.series(),
+                        # so the spend chart moves during a live run
+                        "series": {**reader.series(), "tokens": _token_series(reader)},
                     }
                     yield f"data: {json.dumps(payload)}\n\n"
                     last = latest

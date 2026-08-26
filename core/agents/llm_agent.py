@@ -212,6 +212,7 @@ class LLMAgent:
                 {
                     "timestep": time,
                     "agent_tag": self.agent_tag,
+                    "model": chat_params.get("model"),
                     "total_input_tokens": total_input_tokens,
                     "total_output_tokens": total_output_tokens,
                 },

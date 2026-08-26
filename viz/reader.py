@@ -428,12 +428,21 @@ class RunReader:
         return sorted(by_name.values(), key=lambda a: a.get("created_at", 0))
 
     def token_totals(self) -> List[dict]:
-        """Cumulative LLM spend per timestep."""
+        """Cumulative LLM spend per timestep, split by model in ``by_model``
+        (records that predate the ``model`` field land under ``""``)."""
         out = []
         cum_in = cum_out = 0
         for t in sorted(self._tokens):
-            step_in = sum(r["total_input_tokens"] for r in self._tokens[t].values())
-            step_out = sum(r["total_output_tokens"] for r in self._tokens[t].values())
+            step_in = step_out = 0
+            by_model: Dict[str, dict] = {}
+            for r in self._tokens[t].values():
+                step_in += r["total_input_tokens"]
+                step_out += r["total_output_tokens"]
+                bucket = by_model.setdefault(
+                    r.get("model") or "", {"input": 0, "output": 0}
+                )
+                bucket["input"] += r["total_input_tokens"]
+                bucket["output"] += r["total_output_tokens"]
             cum_in += step_in
             cum_out += step_out
             out.append(
@@ -443,6 +452,7 @@ class RunReader:
                     "output": step_out,
                     "cum_input": cum_in,
                     "cum_output": cum_out,
+                    "by_model": by_model,
                 }
             )
         return out
