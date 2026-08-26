@@ -148,8 +148,46 @@ def test_remains_ignore_dry_reduction():
     print("PASS: remains are fully infectious regardless of the host's phase")
 
 
+def test_health_state_and_world_log():
+    """health_state walks the four states and the world log records them."""
+    import json
+
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        viral_infection_probability=0.0,
+        viral_lifespan=6,
+        viral_mobile_days=2,
+        viral_incubation_min=1,
+        viral_incubation_max=1,
+    )
+    env.add_agent(agent_tag="a", agent_name="a", agent_type="text")
+    env.restart_env(agent_poses={"a": (5, 5)})
+    env.agent_energy["a"] = 1000.0
+
+    assert env.health_state("a") == "healthy"
+    env.infect_agent(agent_tag="a")
+    assert env.health_state("a") == "incubating"
+    env.step({})  # incubation 1 -> 0
+    assert env.health_state("a") == "feverish"
+    env.step({})
+    env.step({})
+    assert env.health_state("a") == "bedridden"
+
+    lines = [json.loads(x) for x in open(tmp / "world_state.jsonl")]
+    meta, frames = lines[0], lines[1:]
+    assert meta["schema_version"] == 6
+    assert meta["agent_fields"][9] == "n_bedridden"
+    bed = [f["agents"]["a"][9] for f in frames if "a" in f["agents"]]
+    assert bed[0] == 0 and bed[-1] == 1, bed
+    assert frames[-1]["n_bedridden"] == 1
+    assert frames[-1]["n_sick"] == 1, "bedridden still counts as sick"
+    print("PASS: health_state is canonical and the world log carries n_bedridden")
+
+
 if __name__ == "__main__":
     test_dry_phase_keeps_affordances()
     test_dry_phase_transmits_reduced()
     test_remains_ignore_dry_reduction()
+    test_health_state_and_world_log()
     print("\nAll dry/wet phase checks passed ✅")

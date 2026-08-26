@@ -150,7 +150,7 @@ def test_world_log_and_checkpoint():
 
     lines = [json.loads(line) for line in open(tmp / "world_state.jsonl")]
     meta, last = lines[0], lines[-1]
-    assert meta["agent_fields"][-1] == "n_recovered", meta["agent_fields"]
+    assert "n_recovered" in meta["agent_fields"], meta["agent_fields"]
     idx = meta["agent_fields"].index("n_recovered")
     assert last["agents"]["a"][idx] == 1, last["agents"]["a"]
 

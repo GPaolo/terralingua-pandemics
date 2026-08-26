@@ -191,7 +191,10 @@ per-step `n_sick` scalar; `n_viral - n_sick` is the silent-carrier count.
 Schema 3 added `n_ppe` at index 7 (PPE artifacts carried; protection is the
 min over the inventory, never a product — `_infection_protection`).
 Schema 4 added `n_recovered` at index 8 (infections cleared alive, by cure or
-natural expiry — deaths don't count). Schema 5 widened map artifact entries to
+natural expiry — deaths don't count). Schema 6 added `n_bedridden` at index 9
+plus a per-step `n_bedridden` scalar; `n_sick - n_bedridden` is the feverish
+walkers, and `env.health_state(tag)` is the canonical derivation
+(healthy/incubating/feverish/bedridden) every consumer should go through. Schema 5 widened map artifact entries to
 `[x, y, display_name, kind]` (kind: text/ppe/health_center/remains; ground
 viral artifacts present as `remains_of_<host>` while their internal name — the
 one transmission chains key on — never changes). "Recovered" on screen means

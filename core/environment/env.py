@@ -51,19 +51,14 @@ SICK_AGENT_NOTICE = (
     "beings can still give you energy."
 )
 
-#: The early, still-ambulatory phase of the illness (viral_mobile_days > 0):
-#: the host is told it is unwell but keeps every affordance. Same rule as
-#: above — symptoms, never the virus by name.
+#: The dry, still-ambulatory phase: symptoms, never the virus by name.
 FEVERISH_AGENT_NOTICE = (
     "You have fallen ill: you are feverish and weak, and something is "
     "draining your energy. You can still move, eat and act."
 )
 
-#: What a survivor is told, every step, once its last infection has cleared.
-#: Real Ebola survivors who understood their immunity became caregivers and
-#: burial workers; withholding this would waste the mechanic (recovery is
-#: permanent immunity — infect_agent refuses anyone with a recovery on
-#: record).
+#: Told every step once a *felt* infection cleared: knowing they are immune
+#: is what lets survivors become caregivers.
 RECOVERED_AGENT_NOTICE = (
     "You have survived the sickness and recovered. Your body now resists "
     "it: you cannot catch the sickness again, even from the sick or from "
@@ -221,10 +216,8 @@ class OpenGridWorld:
         self.agent_inventories: Dict[str, Set[str]] = defaultdict(set)
         # {agent_tag: infections cleared while alive (cure or natural expiry)}
         self.agent_recoveries: Dict[str, int] = defaultdict(int)
-        # The subset the agent lived through *symptomatic*: only these earn
-        # the "you are immune" notice. A silent carrier cured while still
-        # incubating is immune too, but telling it would leak the infection
-        # it never knew about.
+        # Recoveries the host lived through symptomatic: only these earn the
+        # immune notice — announcing an unfelt cure would leak the infection.
         self.agent_known_recoveries: Dict[str, int] = defaultdict(int)
         self.expired_artifacts: List[Artifact] = []
         # Total number of viral infections so far. Used to name infection copies uniquely.
@@ -588,13 +581,14 @@ class OpenGridWorld:
             infos[agent_tag] = {"available_actions": avail_actions}
             # Matters on --resume: agents sick before the checkpoint would
             # otherwise get their first prompt back without the notice.
-            if self._count_bedridden(agent_tag) > 0:
+            health = self.health_state(agent_tag)
+            if health == "bedridden":
                 infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
-            elif self._count_sick(agent_tag) > 0:
+            elif health == "feverish":
                 infos[agent_tag]["Health"] = FEVERISH_AGENT_NOTICE
             elif (
-                self.agent_known_recoveries.get(agent_tag, 0) > 0
-                and self._count_viral(agent_tag) == 0
+                health == "healthy"
+                and self.agent_known_recoveries.get(agent_tag, 0) > 0
             ):
                 infos[agent_tag]["Health"] = RECOVERED_AGENT_NOTICE
 
@@ -628,10 +622,8 @@ class OpenGridWorld:
     def _count_sick(self, agent_tag: str) -> int:
         """How many of this agent's infections have finished incubating.
 
-        Symptomatic in either phase: this gates what the host feels (the
-        health notice), the energy drain and whether it transmits at all.
-        What the host can *do* is gated by _count_bedridden — a "dry" host
-        still moves, eats and acts.
+        Both symptomatic phases: gates what the host feels and whether it
+        transmits. What it can *do* is gated by _count_bedridden.
         """
         return sum(
             1
@@ -641,13 +633,7 @@ class OpenGridWorld:
         )
 
     def _count_bedridden(self, agent_tag: str) -> int:
-        """How many of this agent's infections are past the ambulatory phase.
-
-        A symptomatic infection spends its first viral_mobile_days "dry":
-        the host is feverish but keeps every affordance. From then on it is
-        bedridden — cannot move, take, bury or eat. This, not _count_sick,
-        gates behaviour.
-        """
+        """Infections past the "dry" days: these gate what the host can do."""
         return sum(
             1
             for name in self.agent_inventories[agent_tag]
@@ -656,13 +642,20 @@ class OpenGridWorld:
             and self.artifacts[name].days_symptomatic >= self.viral_mobile_days
         )
 
-    def _hosted_infectiousness(self, artifact: ViralArtifact) -> float:
-        """Transmission multiplier for a hosted infection.
-
-        Reduced while the host is still ambulatory ("dry" symptoms), full
-        once bedridden. Ground artifacts (remains) never pass through here:
-        a corpse is always fully infectious.
+    def health_state(self, agent_tag: str) -> str:
+        """Canonical illness state, derived (a stored flag would drift):
+        healthy, incubating, feverish (symptomatic, ambulatory) or bedridden.
         """
+        if self._count_bedridden(agent_tag) > 0:
+            return "bedridden"
+        if self._count_sick(agent_tag) > 0:
+            return "feverish"
+        if self._count_viral(agent_tag) > 0:
+            return "incubating"
+        return "healthy"
+
+    def _hosted_infectiousness(self, artifact: ViralArtifact) -> float:
+        """Reduced transmission while the host is still ambulatory."""
         if artifact.days_symptomatic < self.viral_mobile_days:
             return self.viral_mobile_infectiousness
         return 1.0
@@ -686,14 +679,17 @@ class OpenGridWorld:
         agents = {}
         n_infected = 0
         n_sick = 0
+        n_bedridden = 0
         for tag in self.agent_registry:
             pos = self.agent_pos.get(tag)
             if pos is None:
                 continue
             n_viral = self._count_viral(tag)
             n_sick_tag = self._count_sick(tag)
+            n_bed_tag = self._count_bedridden(tag)
             n_infected += n_viral > 0
             n_sick += n_sick_tag > 0
+            n_bedridden += n_bed_tag > 0
             # A negative init_agent_energy means infinite energy, which is not
             # representable in JSON; null reads as "unbounded" to the consumer.
             energy = self.agent_energy[tag]
@@ -707,6 +703,7 @@ class OpenGridWorld:
                 n_sick_tag,
                 self._count_ppe(tag),
                 self.agent_recoveries.get(tag, 0),
+                n_bed_tag,
             ]
 
         # artifacts_map is a defaultdict, so a stale read can leave empty sets.
@@ -736,6 +733,7 @@ class OpenGridWorld:
             food_total=sum(self.food.values()),
             n_infected=n_infected,
             n_sick=n_sick,
+            n_bedridden=n_bedridden,
         )
 
     # ---------- core mechanics ----------
@@ -759,14 +757,9 @@ class OpenGridWorld:
                 )
 
             move = (0, 0)
-            # A viral artifact past its ambulatory phase makes an agent
-            # bedridden: it cannot move, steal energy or eat until the
-            # infection clears. _get_avail_actions already withholds those
-            # affordances; re-checking here keeps the rule true even for a
-            # hand-driven step() and, unlike the silent coercion below, tells
-            # the agent why nothing happened. An agent still incubating — or
-            # symptomatic but still in its "dry" days — is unaffected.
-            sick = self._count_bedridden(agent) > 0
+            # Re-checked beyond _get_avail_actions so a hand-driven step()
+            # obeys the rule too, and the agent is told why nothing happened.
+            sick = self.health_state(agent) == "bedridden"
 
             # Get action name, message and params
             # ---------------------------
@@ -892,9 +885,8 @@ class OpenGridWorld:
                         caught = self.infect_agent(
                             agent_tag=agent, source_artifact=artifact
                         )
-                    # The burial is the funeral: everyone else beside the
-                    # grave takes a lesser ritual-contact exposure — the
-                    # digger handles the body, the mourners touch it less.
+                    # The burial is the funeral: mourners beside the grave
+                    # take a lesser exposure than the digger.
                     attendees = []
                     if pos is not None:
                         for other in self.agent_registry:
@@ -944,8 +936,7 @@ class OpenGridWorld:
                     )
 
             elif action_name in ("give", "take"):
-                # Energy changes hands only by touch: the target must be on
-                # an adjacent cell (Chebyshev 1, wrapping across the seam).
+                # Touch only: the target must be on an adjacent cell (wrapping)
                 target_name = action_params.get("target")
                 target_tag = None
                 for tag, name in self.agent_names.items():
@@ -1006,8 +997,6 @@ class OpenGridWorld:
                                 target_final_energy=self.agent_energy[target_tag],
                                 final_energy=self.agent_energy[agent],
                             )
-                        # The transfer is one physical contact: either side
-                        # may catch what the other carries.
                         self._touch_exposure(agent, target_tag, infos)
                     else:
                         self._note_outcome(
@@ -1472,9 +1461,8 @@ class OpenGridWorld:
 
         # Inventory
         updated_inventory = defaultdict(set)
-        # Infections that lived a symptomatic step now: their dry-day clock
-        # advances only after this step's spread pass, so the phase an
-        # infection transmits at is the phase its host acted in.
+        # Dry-day clocks advance only after the spread pass, so an infection
+        # transmits at the phase its host acted in.
         symptomatic_ticked = []
         for agent_tag, inventory in self.agent_inventories.items():
             for art_name in inventory:
@@ -1525,8 +1513,6 @@ class OpenGridWorld:
         if not self.inert_artifacts:
             self._heal_at_health_centers(infos)
             self._spread_viral_artifacts(infos)
-        # Now the spread has used this step's phase, the dry-day clocks move
-        # (healed or expired infections are gone from self.artifacts already)
         for art_name in symptomatic_ticked:
             artifact = self.artifacts.get(art_name)
             if isinstance(artifact, ViralArtifact):
@@ -1578,10 +1564,7 @@ class OpenGridWorld:
             done_dict[a] = True
             rewards[a] -= 100
 
-        # Funerals: deaths that left remains are announced to the beings
-        # within earshot, with directions — never the cause; working that out
-        # is their problem. Whether to gather, and risk the corpse, is each
-        # being's own call.
+        # Funerals: announced within earshot, with directions, never the cause.
         if self._pending_funerals or self._pending_burial_reminders:
             if self.funeral_mourning_days > 0:
                 d = self.funeral_mourning_days
@@ -1638,13 +1621,14 @@ class OpenGridWorld:
             if agent_tag not in infos:
                 infos[agent_tag] = {}
             infos[agent_tag]["available_actions"] = avail_actions
-            if self._count_bedridden(agent_tag) > 0:
+            health = self.health_state(agent_tag)
+            if health == "bedridden":
                 infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
-            elif self._count_sick(agent_tag) > 0:
+            elif health == "feverish":
                 infos[agent_tag]["Health"] = FEVERISH_AGENT_NOTICE
             elif (
-                self.agent_known_recoveries.get(agent_tag, 0) > 0
-                and self._count_viral(agent_tag) == 0
+                health == "healthy"
+                and self.agent_known_recoveries.get(agent_tag, 0) > 0
             ):
                 # setdefault: the richer "your strength is back" message from
                 # the expiry pass wins on the recovery step itself
@@ -1951,8 +1935,7 @@ class OpenGridWorld:
         Remove an agent from the environment.
         Dead agents leave behind food in their position.
         """
-        # A bedridden host that starves still died of the disease: record the
-        # infection alongside the reason, or the CFR undercounts.
+        # a bedridden host that starves still died of the disease
         died_infected = self._count_viral(agent) > 0
         announcement = f"☠️ Agent {self.agent_names[agent]}({agent}) died "
         if reason == "sickness":
@@ -1999,9 +1982,7 @@ class OpenGridWorld:
                         # Present as the corpse it is; the internal name stays
                         # so transmission chains keyed on it survive.
                         artifact.display_name = f"remains_of_{self.agent_names[agent]}"
-                        # Mourning: blocked steps are step_count+1 ..
-                        # buriable_after inclusive, so 0 days = buriable at
-                        # the very next step
+                        # 0 mourning days = buriable at the very next step
                         artifact.buriable_after = (
                             self.step_count + self.funeral_mourning_days
                         )
@@ -2280,11 +2261,7 @@ class OpenGridWorld:
         )
 
     def _care_hazard_multiplier(self, agent_tag: str) -> float:
-        """Multiplier on the death hazard from supportive care.
-
-        The best (lowest) hazard_multiplier of the health centers within
-        reach wins; several centers do not stack, same rule as PPE.
-        """
+        """Best (lowest) health-center hazard_multiplier in reach; no stacking."""
         return min(
             (
                 a.hazard_multiplier
@@ -2331,11 +2308,7 @@ class OpenGridWorld:
         return max(min(dx, self.grid_size - dx), min(dy, self.grid_size - dy))
 
     def _within_earshot(self, agent_tag: str, pos) -> bool:
-        """Whether funeral news from pos reaches this being directly.
-
-        Beyond funeral_announcement_radius (-1: everywhere) a being only
-        learns of a death if someone tells it.
-        """
+        """Funeral news travels funeral_announcement_radius (-1: everywhere)."""
         if self.funeral_announcement_radius < 0:
             return True
         return (
@@ -2344,11 +2317,7 @@ class OpenGridWorld:
         )
 
     def _compass_offset(self, from_pos, to_pos) -> str:
-        """Shortest offset on the torus, in the words agents move by.
-
-        "3 cells up, 2 cells right" is directly actionable: up/down/left/right
-        are exactly the MOVE_DICT directions, so a being can follow it.
-        """
+        """Shortest toroidal offset in MOVE_DICT words: "3 cells up, 2 cells right"."""
 
         def shortest(d: int) -> int:
             d %= self.grid_size
@@ -2588,13 +2557,8 @@ class OpenGridWorld:
                     )
 
     def _touch_exposure(self, agent_a: str, agent_b: str, infos: dict):
-        """One physical contact between two beings: each side may catch what
-        the other carries.
-
-        Rolled per symptomatic viral artifact on the other side, at
-        viral_infection_probability x viral_contact_multiplier, the catcher's
-        PPE still applying. Incubating infections transmit nothing, and a
-        fresh catch is announced only once symptomatic, as everywhere else.
+        """One physical contact: each side rolls per symptomatic artifact on
+        the other, at probability x viral_contact_multiplier x PPE.
         """
         if self.inert_artifacts:
             return
@@ -2671,8 +2635,7 @@ class OpenGridWorld:
             tag: self._infection_protection(tag) for tag in self.agent_registry
         }
         for host, source_pos, artifact in infections:
-            # A "dry" host transmits at a fraction of the full rate; remains
-            # on the ground (host None) are always fully infectious.
+            # Remains (host None) never take the dry discount
             rate = self.viral_infection_probability
             if host is not None:
                 rate *= self._hosted_infectiousness(artifact)
@@ -2716,15 +2679,10 @@ class OpenGridWorld:
     def _get_avail_actions(self, agent_tag: str):
         agent_position = self.agent_pos[agent_tag]
 
-        # A viral artifact past its ambulatory phase makes an agent bedridden:
-        # it cannot move or steal energy (and, in step(), it stops eating).
-        # "move" itself stays on the list, restricted to "stay", so that a sick
-        # agent alone in an empty patch is never left with an empty action
-        # list — the prompt would then offer it nothing to choose and every
-        # reply would fail to parse. An agent still incubating keeps the full
-        # action set: nothing here may hint that it is carrying anything. A
-        # "dry" symptomatic agent keeps it too — it is feverish, not frozen.
-        sick = self._count_bedridden(agent_tag) > 0
+        # Bedridden keeps "move" restricted to "stay" (never an empty action
+        # list); incubating must look exactly like healthy.
+        health = self.health_state(agent_tag)
+        sick = health == "bedridden"
 
         available_actions = {"move": deepcopy(ACTION_TEXT["move"])}
         if sick:
@@ -2733,6 +2691,10 @@ class OpenGridWorld:
             )
             available_actions["move"]["params"]["direction"] = (
                 "Must be 'stay': you are too sick to move."
+            )
+        elif health == "feverish":
+            available_actions["move"]["description"] += (
+                " You are feverish and weak, but still able to walk."
             )
 
         # Colors
@@ -2755,8 +2717,7 @@ class OpenGridWorld:
             if nearby_agents:
                 break
 
-        # Energy changes hands by touch only: give/take need a being on an
-        # adjacent cell (wrapping), not merely one somewhere in view.
+        # give/take need an adjacent being, not merely one in view
         adjacent_agents = any(
             self._toroidal_distance(agent_position, self.agent_pos[other]) <= 1
             for other in self.agent_registry
@@ -2769,9 +2730,7 @@ class OpenGridWorld:
                 available_actions["take"] = deepcopy(ACTION_TEXT["take"])
         # ---------------------------
 
-        # Burials: remains within reach, and the digger must be well. The
-        # action stays offered during the mourning — attempting it is refused
-        # with the days left, which is how a being learns how long to wait.
+        # Offered during the mourning too: the refusal carries the days left.
         # ---------------------------
         if self.burials and not sick and self._ground_viral_nearby(agent_tag):
             available_actions["bury"] = deepcopy(ACTION_TEXT["bury"])
