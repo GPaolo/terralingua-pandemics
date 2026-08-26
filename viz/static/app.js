@@ -198,6 +198,10 @@ function startStream() {
           .then((d) => { state.viral = d; drawCharts(); })
           .catch(() => {});
       }
+      // Deaths land in meta, so a live run needs it refetched too
+      api(`/api/runs/${state.run}/meta`)
+        .then((m) => { state.meta = { ...state.meta, agent_deaths: m.agent_deaths }; })
+        .catch(() => {});
     }
     // Follow the live edge until the viewer scrubs away. Comparing the current
     // step against the newest one is not enough: the world log runs a step ahead
