@@ -234,6 +234,16 @@ class RunReader:
                 roles[e["agent_tag"]] = e["agent_role"]
         return roles
 
+    def _agent_deaths(self) -> Dict[str, list]:
+        """tag -> [{t, reason}, ...]; a list because respawns can reuse a tag."""
+        deaths: Dict[str, list] = {}
+        for e in self._current_run_events():
+            if e.get("event") == "AGENT_DIED" and e.get("agent_tag"):
+                deaths.setdefault(e["agent_tag"], []).append(
+                    {"t": e.get("timestamp"), "reason": e.get("reason")}
+                )
+        return deaths
+
     def meta(self) -> dict:
         params = self.params
         env = params.get("env", {})
@@ -278,6 +288,7 @@ class RunReader:
             "agents": tags,
             "agent_names": self._agent_names(),
             "agent_roles": self._agent_roles(),
+            "agent_deaths": self._agent_deaths(),
             "genomes": self._genomes,
             "personas": self._personas,
             "has_viral": any(

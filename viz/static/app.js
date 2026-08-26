@@ -497,17 +497,28 @@ function selectAgent(tag) {
   refreshTrail();
 }
 
+/* Latest death at or before the scrubbed step (a tag can be reused by a
+   respawn, so it is a list). Null = absent for some other reason. */
+function deathAt(tag) {
+  const ds = (state.meta.agent_deaths?.[tag] || [])
+    .filter((d) => d.t != null && d.t <= state.step);
+  return ds.length ? ds[ds.length - 1] : null;
+}
+
+const deathText = (d) => `died at step ${d.t}${d.reason ? ` (${d.reason})` : ""}`;
+
 function drawAgentList() {
   const box = $("#agent-list");
   box.innerHTML = "";
   const alive = state.world ? state.world.agents : {};
   for (const tag of state.meta.agents) {
     const here = alive[tag];
+    const death = here ? null : deathAt(tag);
     const pill = document.createElement("button");
     pill.className = "agent-pill" + (tag === state.selected ? " sel" : "");
     pill.style.opacity = here ? 1 : 0.35;
     pill.title = (nameOf(tag) === tag ? "" : `${tag}${here ? "" : " — "}`) +
-      (here ? "" : "not present at this step");
+      (here ? "" : death ? deathText(death) : "not present at this step");
     const health = healthOf(here);
     const role = roleOf(tag);
     const marker = role
@@ -528,7 +539,11 @@ function drawAgentDetail() {
   const tag = state.selected;
   const a = tag && state.world && state.world.agents[tag];
   if (!a) {
-    box.innerHTML = `<p class="empty">${tag ? esc(nameOf(tag)) + " is not in the world at this step." : "No being selected."}</p>`;
+    const death = tag && deathAt(tag);
+    box.innerHTML = `<p class="empty">${
+      !tag ? "No being selected."
+        : death ? `${esc(nameOf(tag))} ${esc(deathText(death))}.`
+        : esc(nameOf(tag)) + " is not in the world at this step."}</p>`;
     return;
   }
   const [x, y, energy, age, nInv] = a;
