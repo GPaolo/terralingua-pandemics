@@ -40,6 +40,7 @@ python main.py \
     --init_agent_energy     100 `# initial energy for each agent` \
     --init_food             500 `# initial amount of food in the environment` \
     --food_zones            3 `# number of food zones in the environment (areas where food can spawn more frequently)` \
+    --food_spawn_rate       10 `# mean food cells spawned per step (Poisson); occupied draws fail silently` \
     --food_mechanism `# flag to enable the food mechanism` \
     --agent_lifespan        150 `# lifespan of agents in the environment` \
     --vision_radius         6 `# vision radius of agents` \
