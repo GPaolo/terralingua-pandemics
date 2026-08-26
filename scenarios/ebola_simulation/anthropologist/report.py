@@ -28,6 +28,7 @@ import epidemic_utils as eu
 INK, INK2 = "#0b0b0b", "#52514e"
 GRID, AXIS, SURFACE = "#e1e0d9", "#c3c2b7", "#fcfcfb"
 BEING, AMBER, RED, BLUE = "#898781", "#fab219", "#d03b3b", "#2a78d6"
+CYAN = "#0a9ac0"  # --recovered, dashed like the dashboard's recovered line
 
 
 def style():
@@ -83,23 +84,40 @@ def save(fig, out_dir, name):
 
 def plot_epidemic_curves(series, out_dir):
     ts = [s["t"] for s in series]
-    fig, ax = plt.subplots(figsize=(9, 4.5))
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 6.5), sharex=True,
+                                   gridspec_kw={"height_ratios": [3, 2]})
     entries = []
     for key, color, label, dashed in [
         ("susceptible", BEING, "susceptible", False),
         ("incubating", AMBER, "incubating", False),
         ("sick", RED, "sick", False),
-        ("cum_deaths", INK2, "dead (cum.)", True),
+        ("recovered", CYAN, "recovered (immune)", True),
     ]:
         ys = [s[key] for s in series]
-        ax.plot(ts, ys, color=color, linestyle="--" if dashed else "-", label=label)
+        ax1.plot(ts, ys, color=color, linestyle="--" if dashed else "-", label=label)
         entries.append((ts, ys, label))
-    label_ends(ax, entries)
-    ax.set_xlabel("day")
-    ax.set_ylabel("beings")
-    ax.set_title("Epidemic curves (incubating and sick are disjoint)", pad=26)
-    top_legend(ax, ncols=4)
-    ax.margins(x=0.10)
+    label_ends(ax1, entries)
+    ax1.set_ylabel("beings")
+    ax1.set_title("Epidemic curves (the four states are disjoint)", pad=26)
+    top_legend(ax1, ncols=4)
+    ax1.margins(x=0.10)
+
+    # Red↔ink sits in the CVD 6–8 band, so cause is never hue-alone:
+    # line style and the end labels carry it too.
+    entries = []
+    for key, color, label, dashed in [
+        ("cum_deaths_virus", RED, "virus", False),
+        ("cum_deaths_other", INK2, "other causes", True),
+    ]:
+        ys = [s[key] for s in series]
+        ax2.plot(ts, ys, color=color, linestyle="--" if dashed else "-", label=label)
+        entries.append((ts, ys, label))
+    label_ends(ax2, entries)
+    ax2.set_xlabel("day")
+    ax2.set_ylabel("cumulative deaths")
+    ax2.set_title("Deaths by cause", pad=26)
+    top_legend(ax2, ncols=2)
+    ax2.margins(x=0.10)
     return save(fig, out_dir, "epidemic_curves.png")
 
 
@@ -241,7 +259,8 @@ def print_summary(m):
     o, p, r = m["outbreak"], m["population"], m["r0"]
     print(f"\n=== Epidemic report: {m['run']} ({m['steps']} steps) ===")
     print(f"Population: {p['ever_alive']} beings ever alive, "
-          f"{p['final_alive']} at the end, "
+          f"{p['final_alive']} at the end "
+          f"({p['final_recovered']} recovered/immune), "
           f"{p['deaths']} deaths ({p['deaths_by_reason']}), "
           f"{p['deaths_while_infected']} of them while infected")
     print(f"Outbreak:   {o['index_cases']} index case(s), "

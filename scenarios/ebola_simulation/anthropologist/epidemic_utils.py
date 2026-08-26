@@ -9,7 +9,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-AGENT_FIELD_DEFAULTS = {"n_viral": 0, "n_sick": 0, "n_ppe": 0}
+AGENT_FIELD_DEFAULTS = {"n_viral": 0, "n_sick": 0, "n_ppe": 0, "n_recovered": 0}
 
 
 def load_params(run_dir) -> dict:
@@ -160,30 +160,42 @@ def ppe_transfers(events):
 
 
 def status_series(frames, infections=(), deaths=()):
-    """Per-frame population counts; incubating excludes sick (disjoint)."""
+    """Per-frame population counts; susceptible, incubating, sick and
+    recovered are disjoint (recovery is permanent immunity). Virus deaths
+    are the ones the env stamps reason "sickness"."""
     new_by_t, dead_by_t = defaultdict(int), defaultdict(int)
+    virus_dead_by_t = defaultdict(int)
     for r in infections:
         new_by_t[r["t"]] += 1
     for d in deaths:
         dead_by_t[d["t"]] += 1
+        if d["reason"] == "sickness":
+            virus_dead_by_t[d["t"]] += 1
 
-    series, cum_inf, cum_dead = [], 0, 0
+    series, cum_inf, cum_dead, cum_dead_virus = [], 0, 0, 0
     for fr in frames:
         agents = list(fr["agents"].values())
         sick = sum(1 for a in agents if a["n_sick"] > 0)
         viral = sum(1 for a in agents if a["n_viral"] > 0)
+        recovered = sum(
+            1 for a in agents if a["n_recovered"] > 0 and a["n_viral"] == 0
+        )
         cum_inf += new_by_t.get(fr["t"] - 1, 0)
         cum_dead += dead_by_t.get(fr["t"] - 1, 0)
+        cum_dead_virus += virus_dead_by_t.get(fr["t"] - 1, 0)
         series.append({
             "t": fr["t"],
             "alive": len(agents),
-            "susceptible": len(agents) - viral,
+            "susceptible": len(agents) - viral - recovered,
             "incubating": viral - sick,
             "sick": sick,
+            "recovered": recovered,
             "ppe_carriers": sum(1 for a in agents if a["n_ppe"] > 0),
             "new_infections": new_by_t.get(fr["t"] - 1, 0),
             "cum_infections": cum_inf,
             "cum_deaths": cum_dead,
+            "cum_deaths_virus": cum_dead_virus,
+            "cum_deaths_other": cum_dead - cum_dead_virus,
             "food_total": fr["food_total"],
         })
     return series
@@ -214,7 +226,9 @@ def exposure_records(frames, infections, grid_size, radius=1):
             for tag, a in fr["agents"].items()
             if a["n_sick"] > 0 and tag not in newly
         ]
-        sources += [(None, (r, c)) for (r, c, n) in fr["artifacts"] if n in viral_names]
+        # (row, col, name) before schema 5, (row, col, name, kind) after.
+        sources += [(None, (a[0], a[1])) for a in fr["artifacts"]
+                    if a[2] in viral_names]
         if not sources:
             continue
         for tag, a in fr["agents"].items():
@@ -349,6 +363,7 @@ def compute_all(run_dir):
         "population": {
             "ever_alive": len(ever_alive),
             "final_alive": series[-1]["alive"] if series else 0,
+            "final_recovered": series[-1]["recovered"] if series else 0,
             "deaths": len(deaths),
             "deaths_by_reason": dict(reasons),
             "deaths_while_infected": sum(

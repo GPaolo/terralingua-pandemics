@@ -37,7 +37,8 @@ def build_epidemic_run(out: Path, steps: int = 60, grid: int = 9, n_agents: int 
         viral_incubation_min=0, viral_incubation_max=2,
         viral_lifespan=25, viral_dropped_lifespan=8,
         viral_infection_radius=1, viral_infection_probability=0.7,
-        viral_energy_multiplier=3.0, ppe_protection=0.1,
+        viral_energy_multiplier=3.0, viral_death_probability=0.1,
+        ppe_protection=0.1,
         init_artifacts=[
             {"name": "ppe_01", "type": "ppe", "agent": "b1"},
             {"name": "ppe_02", "type": "ppe", "agent": "b2"},
@@ -111,10 +112,20 @@ def main():
         series = eu.status_series(frames, infections, deaths)
         assert series[-1]["cum_infections"] == len(infections)
         assert series[-1]["cum_deaths"] == len(deaths)
+        assert series[-1]["cum_deaths_virus"] == sum(
+            1 for d in deaths if d["reason"] == "sickness"
+        )
         for s, fr in zip(series, frames):
             assert s["alive"] == len(fr["agents"])
-            assert s["susceptible"] + s["incubating"] + s["sick"] == s["alive"]
-        print("PASS: status series is a disjoint partition and sums match the events")
+            assert (s["susceptible"] + s["incubating"] + s["sick"]
+                    + s["recovered"] == s["alive"])
+            assert s["cum_deaths_virus"] + s["cum_deaths_other"] == s["cum_deaths"]
+        assert series[-1]["cum_deaths_virus"] > 0, \
+            "no virus deaths — raise viral_death_probability or reseed"
+        assert any(s["recovered"] > 0 for s in series), \
+            "nobody recovered — lower viral_death_probability or reseed"
+        print("PASS: status series is a disjoint partition, deaths split by "
+              "cause, recoveries counted")
 
         exposures = eu.exposure_records(frames, infections, grid_size=9, radius=1)
         hits = {(e["t"], e["tag"]) for e in exposures

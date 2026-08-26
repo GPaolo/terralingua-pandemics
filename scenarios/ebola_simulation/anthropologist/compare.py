@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import epidemic_utils as eu
 import report
-from report import AMBER, BEING, RED, label_ends, save, style, top_legend
+from report import AMBER, BEING, CYAN, RED, label_ends, save, style, top_legend
 
 # viz light-theme categorical slots, fixed order, validated on #fcfcfb.
 SLOTS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#4a3aa7"]
@@ -54,18 +54,22 @@ def _mean_band(data, key):
 def plot_average_curves(data, out_dir):
     fig, ax = plt.subplots(figsize=(9, 4.5))
     entries = []
-    for key, color, label in [("susceptible", BEING, "susceptible"),
-                              ("incubating", AMBER, "incubating"),
-                              ("sick", RED, "sick")]:
+    for key, color, label, dashed in [
+        ("susceptible", BEING, "susceptible", False),
+        ("incubating", AMBER, "incubating", False),
+        ("sick", RED, "sick", False),
+        ("recovered", CYAN, "recovered", True),
+    ]:
         ts, mean, lo, hi = _mean_band(data, key)
         ax.fill_between(ts, lo, hi, color=color, alpha=0.18, linewidth=0)
-        ax.plot(ts, mean, color=color, label=label)
+        ax.plot(ts, mean, color=color, linestyle="--" if dashed else "-",
+                label=label)
         entries.append((ts, mean, label))
     label_ends(ax, entries)
     ax.set_xlabel("day")
     ax.set_ylabel("beings (mean, min–max band)")
     ax.set_title(f"Epidemic curves averaged over {len(data)} seeds", pad=26)
-    top_legend(ax, ncols=3)
+    top_legend(ax, ncols=4)
     ax.margins(x=0.10)
     return save(fig, out_dir, "avg_epidemic_curves.png")
 
