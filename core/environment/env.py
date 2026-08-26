@@ -2110,14 +2110,12 @@ class OpenGridWorld:
             print("\n".join(" ".join(row) for row in grid))
             return
 
-        # --- Init pygame ---
+        # --- Init pygame (no window: rgb_array draws on offscreen surfaces) ---
         if not self._pygame_inited:
             pygame.init()
             self._sidebar_width = 300
             default_size = self.grid_size * self._cell_size
             self._window_size = (default_size + self._sidebar_width, default_size)
-            self._screen = pygame.display.set_mode(self._window_size, pygame.RESIZABLE)
-            pygame.display.set_caption("OpenGridWorld")
             self._font = pygame.font.SysFont(None, 15)  # body / wrapping
             self._font_hdr = pygame.font.SysFont(None, 17, bold=True)  # section headers
             self._font_tag = pygame.font.SysFont(
@@ -2321,10 +2319,16 @@ class OpenGridWorld:
             return pygame.surfarray.array3d(combined).transpose((1, 0, 2))
 
         # --- Human display ---
+        if self._screen is None:
+            self._screen = pygame.display.set_mode(self._window_size, pygame.RESIZABLE)
+            pygame.display.set_caption("OpenGridWorld")
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 self._pygame_inited = False
+                self._screen = None
+                return
             elif event.type == pygame.VIDEORESIZE:
                 self._window_size = (event.w, event.h)
                 self._screen = pygame.display.set_mode(

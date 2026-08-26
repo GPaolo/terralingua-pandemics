@@ -7,6 +7,7 @@ python main.py \
     --exp_description       "Test experiment contact virus incubation" \
     --max_ts                25  \
     --max_parallel_workers 20 \
+    --no-save_video \
     \
     `# Agent LLM` \
     --model                 "claude-haiku-4-5" \
