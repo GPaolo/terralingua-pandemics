@@ -166,36 +166,28 @@ def test_mourning_gates_burial_and_reminds():
     assert "The mourning lasts 2 days" in infos["b"]["Deaths"]
     assert "Word spreads" not in infos["b"]["Deaths"]
 
-    # While the mourning lasts, bury is not offered at all…
-    assert "bury" not in infos["b"]["available_actions"], (
-        "bury must stay hidden during the mourning"
-    )
-    # …and forcing it through is refused (the backstop for hand-driven steps)
-    env.agent_avail_actions["b"]["bury"] = {"params": {"name": ""}}
+    # The action stays offered during the mourning: trying it is how a
+    # being learns how long to wait
+    assert "bury" in infos["b"]["available_actions"]
     _, _, _, _, infos = env.step(
         {"b": {"action": "bury", "params": {"name": "remains_of_a"}}}
     )
-    assert "has not ended" in infos["b"]["Action outcome"], infos["b"]
-    assert "bury" not in infos["b"]["available_actions"]
+    assert "may be buried in 2 days" in infos["b"]["Action outcome"], infos["b"]
 
-    # Last mourning day: still hidden and refused, and the reminder goes out
-    env.agent_avail_actions["b"]["bury"] = {"params": {"name": ""}}
+    # Last mourning day: refused with the countdown, and the reminder goes out
     _, _, _, _, infos = env.step(
         {"b": {"action": "bury", "params": {"name": "remains_of_a"}}}
     )
-    assert "has not ended" in infos["b"]["Action outcome"], infos["b"]
+    assert "may be buried in 1 day." in infos["b"]["Action outcome"], infos["b"]
     assert any(env.artifacts_map.values()), "the remains must still lie there"
     assert "may now be buried" in infos["b"]["Deaths"], infos["b"]
-    assert "bury" in infos["b"]["available_actions"], (
-        "the action must appear when the mourning ends"
-    )
 
     # Next step the burial goes through
     _, _, _, _, infos = env.step(
         {"b": {"action": "bury", "params": {"name": "remains_of_a"}}}
     )
     assert "You buried remains_of_a" in infos["b"]["Action outcome"]
-    print("PASS: mourning hides burial for its days, then reminds the living")
+    print("PASS: mourning refuses burial with a countdown, then reminds the living")
 
 
 def test_attendees_roll_at_the_burial():

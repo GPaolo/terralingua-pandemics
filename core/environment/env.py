@@ -862,11 +862,13 @@ class OpenGridWorld:
                     )
                     rewards[agent] -= 1
                 elif artifact.buriable_after >= self.step_count:
+                    days_left = artifact.buriable_after - self.step_count + 1
                     self._note_outcome(
                         infos,
                         agent,
                         f"The mourning for {artifact.display_name or art_name} "
-                        "has not ended: they cannot be buried yet.",
+                        f"has not ended: they may be buried in {days_left} "
+                        f"day{'s' if days_left != 1 else ''}.",
                     )
                     rewards[agent] -= 1
                 else:
@@ -2767,19 +2769,11 @@ class OpenGridWorld:
                 available_actions["take"] = deepcopy(ACTION_TEXT["take"])
         # ---------------------------
 
-        # Burials: remains within reach, the digger well, and the mourning
-        # over — while it lasts the action does not appear at all (these
-        # affordances are computed one step ahead, hence <=; the handler's
-        # own check is the backstop for a hand-driven step()).
+        # Burials: remains within reach, and the digger must be well. The
+        # action stays offered during the mourning — attempting it is refused
+        # with the days left, which is how a being learns how long to wait.
         # ---------------------------
-        if (
-            self.burials
-            and not sick
-            and any(
-                self.artifacts[n].buriable_after <= self.step_count
-                for n in self._ground_viral_nearby(agent_tag)
-            )
-        ):
+        if self.burials and not sick and self._ground_viral_nearby(agent_tag):
             available_actions["bury"] = deepcopy(ACTION_TEXT["bury"])
         # ---------------------------
 
