@@ -80,7 +80,8 @@ python main.py \
     --viral_lifespan        12 `# infectious period: days an infection stays symptomatic (-1: permanent until the host dies). Ebola: onset -> death 6-16d, onset -> recovery ~2 weeks` \
     --viral_dropped_lifespan 10 `# steps a viral artifact dropped at its host's death survives on the map, still spreading (-1: forever)` \
     --viral_infection_radius 1 `# max distance in cells at which a viral artifact can spread (1 = contact: the 8 adjacent cells)` \
-    --viral_infection_probability 0.5 `# per-step, per-neighbor transmission probability. Calibrate this to hit the target R0` \
+    --viral_infection_probability 0.15 `# per-step probability of catching it from a symptomatic being on an adjacent cell. Calibrate this to hit the target R0` \
+    --viral_contact_multiplier 4 `# touching (give/take energy) scales that exposure: 0.15 x 4 = 0.6 per contact — caregiving contact was the main Ebola transmission route` \
     --viral_energy_multiplier 1.5 `# energy drain multiplier once symptomatic (K). Kept survivable so lethality is set by the roll below, not starvation` \
     --viral_death_probability 0.19 `# hazard ramps 0 -> this over the 12 sick days; 1-prod(1-0.19*t/12) ~= 70% CFR (untreated Zaire ebolavirus)` \
     --ppe_protection        0.1 `# multiplier on the infection probability of a being carrying PPE (0: immune, 1: no protection)` \

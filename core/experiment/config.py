@@ -185,6 +185,13 @@ class EnvConfig:
     static_food: bool = field(
         default=False, metadata={"help": "Food always spawns in same positions"}
     )
+    viral_contact_multiplier: float = field(
+        default=1.0,
+        metadata={
+            "help": "Touching (give/take energy) scales viral_infection_probability "
+            "by this factor for that exposure (PPE still applies)"
+        },
+    )
     viral_dropped_lifespan: int = field(
         default=20,
         metadata={
@@ -275,6 +282,9 @@ class EnvConfig:
         )
         assert self.burial_infection_multiplier >= 0, (
             "burial_infection_multiplier cannot be negative"
+        )
+        assert self.viral_contact_multiplier >= 0, (
+            "viral_contact_multiplier cannot be negative"
         )
         assert 0.0 <= self.viral_death_probability <= 1.0, (
             "viral_death_probability must be in [0, 1]"

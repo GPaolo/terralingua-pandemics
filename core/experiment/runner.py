@@ -157,6 +157,7 @@ class SimulationRunner:
             viral_dropped_lifespan=self.params.env.viral_dropped_lifespan,
             viral_infection_radius=self.params.env.viral_infection_radius,
             viral_infection_probability=self.params.env.viral_infection_probability,
+            viral_contact_multiplier=self.params.env.viral_contact_multiplier,
             viral_energy_multiplier=self.params.env.viral_energy_multiplier,
             viral_death_probability=self.params.env.viral_death_probability,
             ppe_protection=self.params.env.ppe_protection,

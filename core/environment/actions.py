@@ -8,9 +8,10 @@ ACTION_TEXT = {
         "params": {"direction": "One among [right, left, up, down, stay]."},
     },
     "give": {
-        "description": "Transfer some of your energy to another nearby being.",
+        "description": "Transfer some of your energy to a being on a cell "
+        "adjacent to yours. This is physical contact.",
         "params": {
-            "target": "Name of a being in your field of view to give energy to.",
+            "target": "Name of a being on a cell next to yours to give energy to.",
             "amount": "Integer amount of energy to transfer (1 up to your current energy).",
         },
     },
@@ -22,9 +23,10 @@ ACTION_TEXT = {
         },
     },
     "take": {
-        "description": "Steal energy from another nearby being.",
+        "description": "Steal energy from a being on a cell adjacent to yours. "
+        "This is physical contact.",
         "params": {
-            "target": "Name of a being in your field of view to steal energy from.",
+            "target": "Name of a being on a cell next to yours to steal energy from.",
             "amount": "Integer amount of energy to steal (1 up to target's current energy).",
         },
     },

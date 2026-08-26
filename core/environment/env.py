@@ -90,6 +90,7 @@ class OpenGridWorld:
         viral_dropped_lifespan: int = 20,
         viral_infection_radius: int = 1,
         viral_infection_probability: float = 0.3,
+        viral_contact_multiplier: float = 1.0,
         viral_energy_multiplier: float = 2.0,
         viral_death_probability: float = 0.0,
         ppe_protection: float = 0.1,
@@ -131,6 +132,9 @@ class OpenGridWorld:
         self.viral_dropped_lifespan = viral_dropped_lifespan
         self.viral_infection_radius = viral_infection_radius
         self.viral_infection_probability = viral_infection_probability
+        # Touching (give/take energy) scales the exposure: physical contact
+        # carries more risk than standing nearby. Burials have their own knob.
+        self.viral_contact_multiplier = viral_contact_multiplier
         self.viral_energy_multiplier = viral_energy_multiplier
         # Per-step chance that a symptomatic agent dies of the sickness
         self.viral_death_probability = viral_death_probability
@@ -840,21 +844,21 @@ class OpenGridWorld:
                     )
 
             elif action_name in ("give", "take"):
-                nearby_agents = self._get_nearby_agents(agent)
-                # must be in vision radius
+                # Energy changes hands only by touch: the target must be on
+                # an adjacent cell (Chebyshev 1, wrapping across the seam).
                 target_name = action_params.get("target")
                 target_tag = None
                 for tag, name in self.agent_names.items():
-                    if name == target_name:
+                    if name == target_name and tag in self.agent_registry:
                         target_tag = tag
                         break
 
-                if target_tag in nearby_agents:
-                    a_pos = self.agent_pos[agent]
-                    tgtpos = self.agent_pos[target_tag]
+                if target_tag is not None:
                     if (
-                        abs(a_pos[0] - tgtpos[0]) <= self.vision_radius
-                        and abs(a_pos[1] - tgtpos[1]) <= self.vision_radius
+                        self._toroidal_distance(
+                            self.agent_pos[agent], self.agent_pos[target_tag]
+                        )
+                        <= 1
                     ):
                         # perform transfer
                         amount = max(float(action_params.get("amount", 0.0)), 0.0)
@@ -902,13 +906,25 @@ class OpenGridWorld:
                                 target_final_energy=self.agent_energy[target_tag],
                                 final_energy=self.agent_energy[agent],
                             )
+                        # The transfer is one physical contact: either side
+                        # may catch what the other carries.
+                        self._touch_exposure(agent, target_tag, infos)
                     else:
                         self._note_outcome(
                             infos,
                             agent,
-                            f"Cannot {action_name} energy to {target_name} as not nearby",
+                            f"Cannot {action_name} energy: {target_name} is not "
+                            "on a cell adjacent to yours.",
                         )
                         rewards[agent] -= 1
+                else:
+                    self._note_outcome(
+                        infos,
+                        agent,
+                        f"Cannot {action_name} energy: there is no being "
+                        f"named {target_name} here.",
+                    )
+                    rewards[agent] -= 1
             # ---------------------------
 
             # Change color
@@ -2307,6 +2323,39 @@ class OpenGridWorld:
                         f"🦠 Viral outbreak: {self.agent_names[agent_tag]}({agent_tag}) infected with {art_name} 🦠"
                     )
 
+    def _touch_exposure(self, agent_a: str, agent_b: str, infos: dict):
+        """One physical contact between two beings: each side may catch what
+        the other carries.
+
+        Rolled per symptomatic viral artifact on the other side, at
+        viral_infection_probability x viral_contact_multiplier, the catcher's
+        PPE still applying. Incubating infections transmit nothing, and a
+        fresh catch is announced only once symptomatic, as everywhere else.
+        """
+        if self.inert_artifacts:
+            return
+        if self.rng is None:
+            self.rng = np.random.default_rng()
+        for src, dst in ((agent_a, agent_b), (agent_b, agent_a)):
+            for art_name in list(self.agent_inventories[src]):
+                artifact = self.artifacts.get(art_name)
+                if not isinstance(artifact, ViralArtifact) or not artifact.symptomatic:
+                    continue
+                risk = (
+                    self.viral_infection_probability
+                    * self.viral_contact_multiplier
+                    * self._infection_protection(dst)
+                )
+                if self.rng.random() >= risk:
+                    continue
+                caught = self.infect_agent(
+                    agent_tag=dst, source_artifact=artifact, source_tag=src
+                )
+                if caught is not None and self.artifacts[caught].symptomatic:
+                    infos.setdefault(dst, {})["Infection"] = (
+                        f"Artifact {caught} appeared in your inventory."
+                    )
+
     def _spread_viral_artifacts(self, infos: dict):
         """Spreads viral artifacts to agents nearby their current location.
 
@@ -2436,7 +2485,14 @@ class OpenGridWorld:
             if nearby_agents:
                 break
 
-        if nearby_agents and self.food_mechanism:
+        # Energy changes hands by touch only: give/take need a being on an
+        # adjacent cell (wrapping), not merely one somewhere in view.
+        adjacent_agents = any(
+            self._toroidal_distance(agent_position, self.agent_pos[other]) <= 1
+            for other in self.agent_registry
+            if other != agent_tag
+        )
+        if adjacent_agents and self.food_mechanism:
             available_actions["give"] = deepcopy(ACTION_TEXT["give"])
             # A sick agent is too weak to steal, but can still give energy away
             if not sick:
