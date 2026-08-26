@@ -7,8 +7,10 @@ import tiktoken
 
 MAX_TEXT_ARTIFACT_SIZE = 500
 
+# {max_text_artifact_size} is substituted with the configured limit when the
+# create_artifact action is offered (env._get_avail_actions).
 ARTIFACT_TYPE = {
-    "text": f"Any alfanumeric data stored in a physical marker. Maximum size is {MAX_TEXT_ARTIFACT_SIZE} tokens.",
+    "text": "Any alfanumeric data stored in a physical marker. Maximum size is {max_text_artifact_size} tokens.",
 }
 
 ArtifactCreationError = ValueError
@@ -149,8 +151,10 @@ class TextArtifact(Artifact):
         pose: Tuple[int, int],
         creator: str,
         creation_time: int,
+        max_size: int = MAX_TEXT_ARTIFACT_SIZE,
     ):
         self.payload_encoder = tiktoken.get_encoding("cl100k_base")
+        self.max_size = max_size  # before super(): payload is validated there
         super().__init__(
             name=name,
             payload=payload,
@@ -219,12 +223,29 @@ class TextArtifact(Artifact):
         if not isinstance(payload, str):
             return False, "Payload must be a string for TextArtifact"
         token_count = len(self.payload_encoder.encode(payload))
-        if token_count > MAX_TEXT_ARTIFACT_SIZE:
+        if token_count > self.max_size:
             return (
                 False,
-                f"Payload exceeds maximum token limit of {MAX_TEXT_ARTIFACT_SIZE} tokens (got {token_count} tokens)",
+                f"Payload exceeds maximum token limit of {self.max_size} tokens (got {token_count} tokens)",
             )
         return True, ""
+
+    def serialize(self) -> dict:
+        serialized = super().serialize()
+        serialized["max_size"] = self.max_size
+        return serialized
+
+    @classmethod
+    def deserialize(cls, data: dict):
+        # Construct with an empty payload so a payload larger than the default
+        # limit survives a checkpoint written under a larger configured limit.
+        data = dict(data)
+        payload = data["payload"]
+        data["payload"] = ""
+        artifact = super().deserialize(data)
+        artifact.max_size = data.get("max_size", MAX_TEXT_ARTIFACT_SIZE)
+        artifact.payload = payload
+        return artifact
 
 
 class PPEArtifact(Artifact):

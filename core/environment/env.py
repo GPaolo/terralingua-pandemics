@@ -10,10 +10,12 @@ from typing import Dict, List, Set, Tuple
 
 import numpy as np
 import pygame
+import tiktoken
 
 from core.environment.actions import ACTION_TEXT
 from core.environment.artifact import (
     ARTIFACT_TYPE,
+    MAX_TEXT_ARTIFACT_SIZE,
     Artifact,
     ArtifactCreationError,
     PPEArtifact,
@@ -89,6 +91,8 @@ class OpenGridWorld:
         viral_infection_probability: float = 0.3,
         viral_energy_multiplier: float = 2.0,
         ppe_protection: float = 0.1,
+        max_message_size: int = -1,  # tokens per message; -1: unlimited
+        max_text_artifact_size: int = MAX_TEXT_ARTIFACT_SIZE,  # tokens per text artifact
         init_artifacts: str | Path | List[dict] | None = None,
         parent_authored_genome: bool = False,
         log_world_state: bool = True,
@@ -126,6 +130,9 @@ class OpenGridWorld:
         self.viral_energy_multiplier = viral_energy_multiplier
         # Multiplier on the contraction probability of an agent carrying PPE
         self.ppe_protection = ppe_protection
+        self.max_message_size = max_message_size
+        self.max_text_artifact_size = max_text_artifact_size
+        self._token_encoder = None  # lazy: only needed when messages are capped
         # Artifacts seeded by the environment itself, as a list of entries
         # {name, payload, pose, lifespan, step} or a path to a JSON file
         # containing such a list
@@ -288,6 +295,7 @@ class OpenGridWorld:
                     creator=creator,
                     lifespan=lifespan,
                     creation_time=self.step_count,
+                    max_size=self.max_text_artifact_size,
                 )
             except ArtifactCreationError as e:
                 return str(e)
@@ -634,6 +642,20 @@ class OpenGridWorld:
             action_name = act.get("action", "move")
             message = act.get("message", "")
             action_params = act.get("params", {})
+
+            if self.max_message_size >= 0 and message:
+                if self._token_encoder is None:
+                    self._token_encoder = tiktoken.get_encoding("cl100k_base")
+                toks = self._token_encoder.encode(str(message))
+                if len(toks) > self.max_message_size:
+                    message = self._token_encoder.decode(
+                        toks[: self.max_message_size]
+                    )
+                    self._note_outcome(
+                        infos,
+                        agent,
+                        f"Your message was cut off at {self.max_message_size} tokens.",
+                    )
 
             # Intercept before the availability gate below: it withholds "take"
             # from a sick agent, so the gate would already have coerced this to
@@ -2084,6 +2106,12 @@ class OpenGridWorld:
         ):
             available_actions["create_artifact"] = deepcopy(
                 ACTION_TEXT["create_artifact"]
+            )
+            # .replace, not .format: the string embeds a dict repr full of braces
+            available_actions["create_artifact"]["params"]["payload"] = (
+                available_actions["create_artifact"]["params"]["payload"].replace(
+                    "{max_text_artifact_size}", str(self.max_text_artifact_size)
+                )
             )
             if self.artifact_creation_cost > 0:
                 available_actions["create_artifact"]["description"] += (

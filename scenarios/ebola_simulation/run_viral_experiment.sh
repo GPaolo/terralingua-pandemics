@@ -22,6 +22,8 @@ python main.py \
     --genome                "ocean_5" `# genome configuration for agents, e.g. "ocean_5", "no_traits", "sentence_directed".` \
     --max_history           3 `# number of past timesteps to include in agent observations` \
     --internal_memory_size  150 `# size of the internal memory for agents` \
+    --max_message_size      100 `# max tokens per message; longer ones are cut off and the agent is told (-1: unlimited)` \
+    --max_text_artifact_size 250 `# max tokens a text artifact can hold` \
     --use_internal_memory `# flag to enable internal memory for agents` \
     --use_inventory `# flag to enable inventory for agents` \
     --no-use_colors `# flag to disable color usage for agents (agents can set a color for themselves that other agents can see)` \

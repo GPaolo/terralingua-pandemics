@@ -141,6 +141,17 @@ class EnvConfig:
         default=50, metadata={"help": "Initial energy per agent"}
     )
     init_food: int = field(default=100, metadata={"help": "Initial food count"})
+    max_message_size: int = field(
+        default=-1,
+        metadata={
+            "help": "Max tokens per agent message; longer ones are cut off "
+            "and the agent is told (-1 = unlimited)"
+        },
+    )
+    max_text_artifact_size: int = field(
+        default=500,
+        metadata={"help": "Max tokens a text artifact can hold"},
+    )
     min_agents: int = field(default=0, metadata={"help": "Minimum agent population"})
     reproduction_allowed: bool = field(
         default=True, metadata={"help": "Enable reproduction"}
@@ -239,6 +250,9 @@ class EnvConfig:
             "ppe_protection must be in [0, 1]"
         )
         assert self.verbose in (0, 1, 2), "verbose must be 0, 1 or 2"
+        assert self.max_text_artifact_size > 0, (
+            "max_text_artifact_size must be positive"
+        )
         assert self.viral_init_infected >= 0, (
             "viral_init_infected cannot be negative"
         )

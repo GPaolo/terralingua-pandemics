@@ -152,6 +152,8 @@ class SimulationRunner:
             viral_infection_probability=self.params.env.viral_infection_probability,
             viral_energy_multiplier=self.params.env.viral_energy_multiplier,
             ppe_protection=self.params.env.ppe_protection,
+            max_message_size=self.params.env.max_message_size,
+            max_text_artifact_size=self.params.env.max_text_artifact_size,
             init_artifacts=self.params.env.init_artifacts,
             verbose=self.params.env.verbose,
             parent_authored_genome=self.params.agent.genome == "sentence_directed",
