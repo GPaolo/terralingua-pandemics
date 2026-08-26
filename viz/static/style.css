@@ -258,6 +258,7 @@ footer.charts {
 .agent-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .agent-chip { width: 12px; height: 12px; border-radius: 4px; }
 .agent-name { font-weight: 620; }
+.persona { margin: -4px 0 10px; font-size: 12px; line-height: 1.45; color: var(--ink-muted); font-style: italic; }
 
 .stat { margin-bottom: 7px; }
 .stat-row {

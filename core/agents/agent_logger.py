@@ -25,6 +25,9 @@ class AgentLogger:
         with open(genome_filename, "w") as f:
             json.dump(genome, f, indent=4)
 
+    def save_persona(self, agent_tag: str, persona: str):
+        (self.log_dir / f"{agent_tag}_persona.txt").write_text(persona)
+
     def log(
         self,
         agent_name: str,

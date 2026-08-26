@@ -78,6 +78,8 @@ class LLMAgent:
         self.internal_memory_encoder = tiktoken.get_encoding("cl100k_base")
 
         self.logger.save_genome(agent_tag=self.agent_tag, genome=self.genome.as_dict())
+        if self.persona:
+            self.logger.save_persona(agent_tag=self.agent_tag, persona=self.persona)
         self.debug = debug
 
         try:
@@ -484,6 +486,8 @@ class LLMAgent:
         self.logger = AgentLogger(agent_tag=self.agent_tag, log_dir=log_dir)
         # Resave the genome as during init the random genome is saved
         self.logger.save_genome(agent_tag=self.agent_tag, genome=self.genome.as_dict())
+        if self.persona:
+            self.logger.save_persona(agent_tag=self.agent_tag, persona=self.persona)
 
 
 if __name__ == "__main__":

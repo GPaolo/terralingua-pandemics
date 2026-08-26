@@ -449,6 +449,7 @@ function drawAgentDetail() {
   const maxAge = state.meta.params?.env?.agent_lifespan || 100;
   const initE = state.meta.params?.env?.init_agent_energy || 100;
   const genome = state.meta.genomes[tag] || {};
+  const persona = (state.meta.personas || {})[tag];
 
   const traits = Object.entries(genome).map(([k, v]) => {
     const pctW = Math.abs(v) * 50;
@@ -473,6 +474,7 @@ function drawAgentDetail() {
         : ""}
       ${hasPPE(a) ? `<span class="badge" style="color:var(--s1)">${PPE_GLYPH} PPE</span>` : ""}
     </div>
+    ${persona ? `<p class="persona">${esc(persona)}</p>` : ""}
     ${meter("Energy", energy, initE * 2, "--s3", energy == null ? "—" : Math.round(energy))}
     ${age == null
       ? meter("Age", 0, maxAge, "--s4", "—")

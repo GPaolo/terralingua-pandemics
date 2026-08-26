@@ -74,6 +74,7 @@ class RunReader:
         self._events: List[dict] = []
         self._agent_ticks: Dict[str, Dict[int, dict]] = {}
         self._genomes: Dict[str, dict] = {}
+        self._personas: Dict[str, str] = {}
         self._tokens: Dict[int, Dict[str, dict]] = {}
         self._params: Optional[dict] = None
 
@@ -150,6 +151,15 @@ class RunReader:
             try:
                 self._genomes[tag] = json.loads(path.read_text())
             except (OSError, json.JSONDecodeError):
+                pass
+
+        for path in sorted(log_dir.glob("*_persona.txt")):
+            tag = path.name[: -len("_persona.txt")]
+            if tag in self._personas:
+                continue
+            try:
+                self._personas[tag] = path.read_text().strip()
+            except OSError:
                 pass
 
     def _read_tokens(self):
@@ -258,6 +268,7 @@ class RunReader:
             "agents": tags,
             "agent_names": self._agent_names(),
             "genomes": self._genomes,
+            "personas": self._personas,
             "has_viral": any(
                 e.get("event") == "VIRAL_INFECTION"
                 for e in self._current_run_events()
