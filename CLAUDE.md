@@ -75,9 +75,10 @@ Traps:
 - `_respawn_if_needed` builds `LLMAgent(...)` without `genome=` or
   `exogenous_motivation=`, so agents respawned to satisfy `--min_agents` silently
   get a random genome and `"base"` motivation regardless of your flags.
-- **Agent placement is not reproducible from the seed** — the same seed gives
-  different starting positions across processes. Don't write tests that assume a
-  fixed layout; assert on properties instead.
+- Agent placement is reproducible only through `env.restart_env(seed=...)` (or by
+  setting `env.rng` first) — it seeds the generator the placement helpers draw
+  from. Placement used to hit the global `np.random`, which made layouts differ
+  across processes and `test_world_state_log` flaky.
 - `_get_nearby_agents` and `_get_avail_actions` index raw `x+dx, y+dy` without
   wrapping, so `give` / `take` are unavailable across the torus seam even when the
   agents can see each other.

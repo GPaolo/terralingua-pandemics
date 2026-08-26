@@ -118,9 +118,9 @@ def test_deltas_replay_exactly():
 
 #: Thresholds, not equality. A being nobody can see leaves the same trace whether
 #: it moved and came back or was blocked and moved once, so perfect recovery is
-#: not always available -- see the module docstring in viz/backfill.py. Measured
-#: over random scripted runs: ~99% of sightings and ~90% of paths. Agent
-#: placement is not reproducible from the seed, so these must hold on any run.
+#: not always available -- see the module docstring in viz/backfill.py.
+#: Placement is seeded through restart_env(seed=...), so the run below is
+#: deterministic; the margins absorb future layout changes, not process noise.
 MIN_SIGHTING_AGREEMENT = 0.95
 MIN_EXACT_PATHS = 0.75
 

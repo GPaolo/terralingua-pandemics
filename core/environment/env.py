@@ -455,6 +455,8 @@ class OpenGridWorld:
             )
 
     def restart_env(self, seed=None, **options):
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
         # fresh world
         self.agent_pos = {}
         self.agent_trajectories = {}
@@ -1427,15 +1429,19 @@ class OpenGridWorld:
             and (p not in self.pos_to_agent.keys())
         ]
         if free_cells:
-            p = free_cells[np.random.choice(range(len(free_cells)))]
+            if self.rng is None:
+                self.rng = np.random.default_rng()
+            p = free_cells[int(self.rng.integers(len(free_cells)))]
             return (p[0], p[1])
         else:
             return None
 
     def _random_free_pos(self):
         """Find a random position in the grid that is not occupied by any agent."""
+        if self.rng is None:
+            self.rng = np.random.default_rng()
         while True:
-            p = tuple(np.random.randint(1, self.grid_size - 1, size=2))
+            p = tuple(int(v) for v in self.rng.integers(1, self.grid_size - 1, size=2))
             if p not in self.agent_pos.values():
                 return p
 
