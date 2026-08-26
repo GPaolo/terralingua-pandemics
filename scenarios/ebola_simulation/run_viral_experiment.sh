@@ -7,9 +7,9 @@ cd "$SCENARIO_DIR/../.."
 python main.py \
     \
     `# Experiment` \
-    --exp_name              "50_agents_30" \
-    --exp_description       "Test experiment contact virus incubation" \
-    --max_ts                100  \
+    --exp_name              "ebola_50_agents_30" \
+    --exp_description       "Ebola-calibrated contact virus with incubation" \
+    --max_ts                300  \
     --max_parallel_workers 20 \
     --no-save_video \
     --verbose               1 `# terminal chatter: 0 warnings only, 1 key events, 2 per-step debug` \
@@ -58,8 +58,8 @@ python main.py \
     `# infectious, draining energy fast. Latency does NOT eat the infectious window.` \
     `#` \
     `# R0 ~= probability x avg_agents_within_radius x infectious_steps, where infectious_steps` \
-    `# is viral_lifespan. At radius 1 the neighbourhood is the 8 adjacent cells, so on a` \
-    `# 25x25 grid with 15 beings that is 0.5 x 0.19 x 30 ~= 2.9. Measure the realized R0 with:` \
+    `# is viral_lifespan. At radius 1 the neighbourhood is the 8 adjacent cells. Ebola's` \
+    `# R0 is 1.5-2.5; after changing any viral knob, measure the realized R0 with:` \
     `#   python analysis_scripts/compute_r0.py logs/<exp_name>` \
     `# then rescale: new_probability = probability x (2.5 / measured_R0).` \
     `# Full epidemic report (plots, PPE efficiency) and interactive analyst:` \
@@ -77,12 +77,12 @@ python main.py \
     --viral_outbreak_step   0 `# timestep at which the outbreak infects the index cases` \
     --viral_incubation_min  2 `# min days between catching the virus and falling ill (silent, not infectious)` \
     --viral_incubation_max  21 `# max days between catching the virus and falling ill. Set both to 0 for no latency` \
-    --viral_lifespan        30 `# infectious period: days an infection stays symptomatic (-1: permanent until the host dies)` \
+    --viral_lifespan        12 `# infectious period: days an infection stays symptomatic (-1: permanent until the host dies). Ebola: onset -> death 6-16d, onset -> recovery ~2 weeks` \
     --viral_dropped_lifespan 10 `# steps a viral artifact dropped at its host's death survives on the map, still spreading (-1: forever)` \
     --viral_infection_radius 1 `# max distance in cells at which a viral artifact can spread (1 = contact: the 8 adjacent cells)` \
     --viral_infection_probability 0.5 `# per-step, per-neighbor transmission probability. Calibrate this to hit the target R0` \
     --viral_energy_multiplier 1.5 `# energy drain multiplier once symptomatic (K). Kept survivable so lethality is set by the roll below, not starvation` \
-    --viral_death_probability 0.048 `# hazard ramps 0 -> this over the 30 sick days; 1-prod(1-0.048*t/30) ~= 50% CFR (ebola-like)` \
+    --viral_death_probability 0.19 `# hazard ramps 0 -> this over the 12 sick days; 1-prod(1-0.19*t/12) ~= 70% CFR (untreated Zaire ebolavirus)` \
     --ppe_protection        0.1 `# multiplier on the infection probability of a being carrying PPE (0: immune, 1: no protection)` \
     --burials `# beings next to remains (a dropped viral artifact) can bury them, removing the artifact from the ground` \
-    --burial_infection_multiplier 1.5 `# burying scales the burier's infection probability by this factor for that exposure (PPE still applies)`
+    --burial_infection_multiplier 2.5 `# burying scales the burier's infection probability by this factor for that exposure (PPE still applies). Viral load peaks at death: corpses were the most infectious contacts of the 2014-16 outbreak`
