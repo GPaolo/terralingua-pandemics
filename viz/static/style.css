@@ -182,6 +182,33 @@ main {
   color: var(--ink-muted);
 }
 
+/* Full screen: double-clicking a panel header pins that panel over the whole
+   app (Esc, the close button, or a second double-click puts it back). The panel
+   is taken out of the grid where it stands rather than moved in the DOM, so
+   every draw* function keeps writing into the same nodes and a live run carries
+   on updating underneath the gesture. Below the .overlay stack on purpose: the
+   run picker, the transmission chain and the whole-run chat still open on top. */
+.panel.zoomed {
+  position: fixed;
+  inset: 10px;
+  z-index: 15;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+/* A double-click would otherwise select the title text. */
+.panel > h2 { cursor: zoom-in; -webkit-user-select: none; user-select: none; }
+/* padding-right keeps the header's own floated buttons ("whole run", "chain")
+   out from under the close button. */
+.panel.zoomed > h2 { cursor: zoom-out; padding-right: 36px; }
+
+#zoom-close {
+  position: fixed;
+  top: 20px;
+  right: 22px;
+  z-index: 16;
+  padding: 3px 10px;
+  line-height: 1.3;
+}
+
 #map-panel { grid-column: 1; grid-row: 1 / 3; display: flex; flex-direction: column; overflow: hidden; }
 /* The canvas is sized in JS to an exact multiple of the grid, so it must not be
    stretched by CSS -- a fractional cell size shows up as shimmering grid lines. */
@@ -189,9 +216,13 @@ main {
 #map { display: block; cursor: crosshair; }
 
 #chat-panel { grid-column: 3; grid-row: 1; }
-#artifacts-panel { grid-column: 3; grid-row: 2; max-height: 32vh; }
+#artifacts-panel { grid-column: 3; grid-row: 2; }
 #side { grid-column: 5; grid-row: 1; min-height: 330px; }
-#thought { grid-column: 5; grid-row: 2; max-height: 32vh; }
+#thought { grid-column: 5; grid-row: 2; }
+/* Cap the lower row so the map keeps the height -- but not when the panel has
+   left the grid for full screen. Written as :not() rather than as an override
+   because these selectors carry an id, which no .panel.zoomed rule can outweigh. */
+#artifacts-panel:not(.zoomed), #thought:not(.zoomed) { max-height: 32vh; }
 
 footer.charts {
   display: grid;
@@ -378,13 +409,26 @@ footer.charts {
 /* ---------- charts ---------- */
 
 .chart svg { width: 100%; height: 92px; display: block; overflow: visible; }
+/* The viewBox is drawn with preserveAspectRatio="none", so the plot is already
+   squashed horizontally and, full screen, stretched ~9x vertically -- which
+   would scale a 2px stroke to ~17px on the horizontal runs of a line while
+   leaving its verticals at 2px. Pinning the stroke to screen space keeps one
+   weight at every size, and keeps the recovered line's dashes even. */
+.chart svg path, .chart svg line { vector-effect: non-scaling-stroke; }
+/* Full screen, the plot takes the height the card gained instead of leaving a
+   92px line above an empty panel. */
+.panel.chart.zoomed { display: flex; flex-direction: column; }
+.chart.zoomed svg { flex: 1; height: auto; min-height: 160px; }
 .chart .hero { font-size: 19px; font-weight: 620; font-variant-numeric: tabular-nums; }
 .chart .hero small { font-size: 11.5px; color: var(--ink-muted); font-weight: 400; }
 .chart-legend { display: flex; gap: 12px; font-size: 11.5px; color: var(--ink-2); margin-top: 4px; }
 
 /* A long epidemic yields one row per generation; scroll instead of letting the
-   footer row grow and squeeze the map above it. */
-.chart .gen-rows { max-height: 96px; overflow: auto; }
+   footer row grow and squeeze the map above it. Full screen there is room, so
+   the rows take it. */
+.chart .gen-rows { overflow: auto; }
+.chart:not(.zoomed) .gen-rows { max-height: 96px; }
+.chart.zoomed .gen-rows { flex: 1; }
 
 .grid-line { stroke: var(--grid-line); stroke-width: 1; }
 .axis-line { stroke: var(--axis); stroke-width: 1; }

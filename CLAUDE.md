@@ -136,6 +136,13 @@ so it works mid-run and on untrusted downloads.
 - The world log runs **one step ahead of the agent decisions** — the frame at
   `last_step` has positions but no actions. Use `last_decision_step` for anything
   that pairs the map with what agents said or thought.
+- **Any panel expands to full screen on a header double-click** (`setZoom` /
+  `hookZoom`, Esc or the `#zoom-close` ✕ to leave). The panel is positioned out
+  of the grid where it stands and never reparented, so every `draw*` keeps
+  writing into the same nodes. `drawCharts` is the exception — it rebuilds its
+  cards from scratch — so the expanded panel is tracked by **element id** in
+  `state.zoom` and re-applied at the end of that redraw. Give any new chart card
+  a stable `id` or it will drop out of full screen on the next step.
 
 **Adding a field to `world_state.jsonl`:** bump `SCHEMA_VERSION` and extend
 `AGENT_FIELDS` in `core/environment/world_logger.py`, emit it in

@@ -30,6 +30,9 @@ const state = {
   trail: null,
   // While true, new steps from the live stream pull the view forward.
   following: false,
+  // Element id of the panel expanded to full screen, or null. Kept as an id
+  // rather than a node because drawCharts rebuilds its cards from scratch.
+  zoom: null,
   cache: new Map(),
 };
 
@@ -764,13 +767,21 @@ function drawCharts() {
   if (state.viral?.chain?.length) {
     box.appendChild(r0Card(state.viral));
   }
+  // These cards are new nodes every time; put the full-screen one back (or drop
+  // the state if that card is no longer drawn).
+  if (state.zoom) setZoom(state.zoom);
 }
 
 const zip = (a, b) => a.map((t, i) => [t, b[i]]);
 
+/* Chart cards are rebuilt on every redraw, so their ids are what carries the
+   full-screen state across one -- they have to be stable, not positional. */
+const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
 function chartCard({ title, series, format, step, heroSuffix }) {
   const card = document.createElement("section");
   card.className = "panel chart";
+  card.id = "chart-" + slug(title);
   // The hero says "at step N", so it must be the value at the scrubbed step,
   // not the run's final one.
   const upto = series[0].points.filter((p) => p[0] <= state.step);
@@ -796,7 +807,7 @@ function chartCard({ title, series, format, step, heroSuffix }) {
 
   const cursorX = sx(state.step);
   card.innerHTML = `
-    <h2>${esc(title)}</h2>
+    <h2 title="Double-click to expand">${esc(title)}</h2>
     <div class="hero">${format(latest)}${heroSuffix || ""} <small>at step ${state.step}</small></div>
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(title)}">
       <line class="grid-line" x1="${PAD}" y1="${sy(y1)}" x2="${W - PAD}" y2="${sy(y1)}"/>
@@ -861,6 +872,7 @@ function chartCard({ title, series, format, step, heroSuffix }) {
 function r0Card(viral) {
   const card = document.createElement("section");
   card.className = "panel chart";
+  card.id = "chart-transmission";
   const started = (viral.chain || []).filter((c) => c.t <= state.step);
   const kids = new Map();
   for (const c of started) {
@@ -881,7 +893,7 @@ function r0Card(viral) {
   const active = started.length - done.length;
 
   card.innerHTML = `
-    <h2>☣ Transmission
+    <h2 title="Double-click to expand">☣ Transmission
       <button id="chain-btn" style="float:right;padding:1px 7px;font-size:11px">chain</button>
     </h2>
     <div class="hero">${r0 == null ? "—" : r0.toFixed(2)} <small>R₀ (gen 0–1) at step ${state.step}</small></div>
@@ -1080,7 +1092,11 @@ function hookControls() {
     else if (e.key === "End") { stop(); state.following = state.meta.status === "live"; goto(state.meta.last_step); }
     else if (e.key === "Escape") {
       unpinTooltip();
-      document.querySelectorAll(".overlay").forEach((o) => o.classList.add("hidden"));
+      // Innermost thing first: a modal opened over a full-screen panel closes on
+      // the first Escape and leaves the panel expanded; the next one closes that.
+      const open = [...document.querySelectorAll(".overlay:not(.hidden)")];
+      open.forEach((o) => o.classList.add("hidden"));
+      if (!open.length) setZoom(null);
     }
   });
 
@@ -1125,10 +1141,38 @@ function hookGutters() {
   }
 }
 
+/* Full screen: a double-click on a panel header pins that panel over the whole
+   app, and Escape, the close button or a second double-click puts it back. The
+   panel is only positioned out of the grid -- never reparented -- so drawMap,
+   drawChat and the rest keep writing into the same nodes while it is expanded. */
+function setZoom(id) {
+  for (const p of document.querySelectorAll(".panel.zoomed")) p.classList.remove("zoomed");
+  const panel = id ? document.getElementById(id) : null;
+  if (panel) panel.classList.add("zoomed");
+  state.zoom = panel ? id : null;
+  $("#zoom-close").hidden = !state.zoom;
+}
+
+function hookZoom() {
+  // Delegated, so the chart cards drawCharts builds are covered without being
+  // hooked one by one on every redraw.
+  document.addEventListener("dblclick", (e) => {
+    const h2 = e.target.closest(".panel > h2");
+    // Headers carry their own buttons ("whole run", "chain"); those keep their
+    // click rather than expanding the panel behind them.
+    if (!h2 || e.target.closest("button") || !h2.parentElement.id) return;
+    window.getSelection()?.removeAllRanges(); // the double-click selected the title
+    const id = h2.parentElement.id;
+    setZoom(state.zoom === id ? null : id);
+  });
+  $("#zoom-close").onclick = () => setZoom(null);
+}
+
 async function init() {
   hookControls();
   hookTooltip();
   hookGutters();
+  hookZoom();
   const runs = await loadRuns();
   const wanted = new URLSearchParams(location.search).get("run");
   const first = runs.find((r) => r.name === wanted) || runs.find((r) => r.status === "live") || runs[0];
