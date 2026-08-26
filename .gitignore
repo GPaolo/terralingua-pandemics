@@ -2,6 +2,8 @@
 *.json
 !analysis_scripts/tags.json
 !init_artifacts_example.json
+!init_artifacts_ebola.json
+!personas_ebola.json
 *.log
 .env
 **/logs/** 

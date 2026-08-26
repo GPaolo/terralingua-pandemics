@@ -1,11 +1,15 @@
 #!/bin/bash
 
+# Runs from anywhere: main.py lives at the repo root, the scenario files here.
+SCENARIO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCENARIO_DIR/../.."
+
 python main.py \
     \
     `# Experiment` \
     --exp_name              "oliv_7" \
     --exp_description       "Test experiment contact virus incubation" \
-    --max_ts                25  \
+    --max_ts                100  \
     --max_parallel_workers 20 \
     --no-save_video \
     \
@@ -14,26 +18,29 @@ python main.py \
     \
     `# Agents` \
     --agents_name_prefix    "being" `# name prefix for agents, e.g. being_0, being_1, etc.` \
-    --exogenous_motivation  "base" `# motivation mechanism for agents, e.g. "base", "creative", "survival", "none".` \
+    --exogenous_motivation  "none" `# motivation mechanism for agents, e.g. "base", "creative", "survival", "none".` \
     --genome                "ocean_5" `# genome configuration for agents, e.g. "ocean_5", "no_traits", "sentence_directed".` \
-    --max_history           1 `# number of past timesteps to include in agent observations` \
+    --max_history           3 `# number of past timesteps to include in agent observations` \
     --internal_memory_size  150 `# size of the internal memory for agents` \
     --use_internal_memory `# flag to enable internal memory for agents` \
     --use_inventory `# flag to enable inventory for agents` \
     --no-use_colors `# flag to disable color usage for agents (agents can set a color for themselves that other agents can see)` \
+    --no-hereditary_persona \
+    --personas       "$SCENARIO_DIR/personas_ebola.json" `# personas for the initial agents, assigned in file order` \
+    --init_artifacts "$SCENARIO_DIR/init_artifacts_ebola.json" `# environment-seeded artifacts: 20 PPE in Miriam's (health worker) inventory` \
     \
     `# Environment` \
-    --grid_size             25 `# size of the grid environment (grid_size x grid_size)` \
-    --init_agents           15 `# initial number of agents in the environment` \
+    --grid_size             50 `# size of the grid environment (grid_size x grid_size)` \
+    --init_agents           20 `# initial number of agents in the environment` \
     --init_human_agents     0 `# initial number of human agents in the environment` \
     --min_agents            15 `# minimum number of agents in the environment` \
     --init_agent_energy     100 `# initial energy for each agent` \
     --init_food             500 `# initial amount of food in the environment` \
-    --food_zones            2 `# number of food zones in the environment (areas where food can spawn more frequently)` \
+    --food_zones            3 `# number of food zones in the environment (areas where food can spawn more frequently)` \
     --food_mechanism `# flag to enable the food mechanism` \
-    --agent_lifespan        100 `# lifespan of agents in the environment` \
+    --agent_lifespan        150 `# lifespan of agents in the environment` \
     --vision_radius         6 `# vision radius of agents` \
-    --dead_agent_food       "none" `# food type from dead agents ("single": dead agent leaves all its energy as food in its cell, "none": dead agents do not leave food, "area": a 3x3 area around the dead agent position is filled with food)` \
+    --dead_agent_food       "none" \
     --artifact_creation \
     --artifact_creation_cost 0 \
     --no-inert_artifacts  \
