@@ -21,6 +21,9 @@ const state = {
   speed: 250,
   series: null,
   viral: null,
+  artifacts: null,
+  // Names of artifact entries the viewer has expanded; survives re-renders.
+  openArtifacts: new Set(),
   stream: null,
   trail: null,
   // While true, new steps from the live stream pull the view forward.
@@ -57,6 +60,7 @@ async function openRun(name) {
   if (state.stream) { state.stream.close(); state.stream = null; }
   state.run = name;
   state.cache.clear();
+  state.openArtifacts.clear();
   state.meta = await api(`/api/runs/${name}/meta`);
   state.selected = state.meta.agents[0] || null;
 
@@ -162,6 +166,12 @@ function startStream() {
     $("#scrub").max = msg.last_step;
     if (msg.status) { state.meta.status = msg.status; setStatus(msg.status); }
     if (msg.series) { state.series = { ...state.series, ...msg.series }; drawCharts(); }
+    // Artifact edits are not in the SSE payload; refetch when the run advances.
+    if (msg.series) {
+      api(`/api/runs/${state.run}/artifacts`)
+        .then((d) => { state.artifacts = d.artifacts; drawArtifacts(); })
+        .catch(() => {});
+    }
     // Follow the live edge until the viewer scrubs away. Comparing the current
     // step against the newest one is not enough: the world log runs a step ahead
     // of the agent decisions, so the view is legitimately never "at the tip".
@@ -219,6 +229,7 @@ function render() {
   drawAgentDetail();
   drawThought();
   drawChat();
+  drawArtifacts();
   drawCharts();
 }
 
@@ -498,10 +509,89 @@ function drawChat() {
   });
 }
 
+/* ---------------- artifacts ---------------- */
+
+/* The panel is step-aware like everything else: it lists what exists (or once
+   existed) as of the scrubbed step, and the content shown is the version that
+   was current then, not the run's final text. */
+function drawArtifacts() {
+  const box = $("#artifacts-body");
+  const arts = (state.artifacts || [])
+    .filter((a) => (a.created_at ?? 0) <= state.step)
+    .sort((p, q) => (q.created_at ?? 0) - (p.created_at ?? 0));
+  if (!arts.length) {
+    box.innerHTML = `<p class="empty">No artifacts exist at step ${state.step}.</p>`;
+    return;
+  }
+  box.innerHTML = arts.map(artifactEntry).join("");
+  box.querySelectorAll("details.artifact").forEach((el) => {
+    el.addEventListener("toggle", () => {
+      if (el.open) state.openArtifacts.add(el.dataset.name);
+      else state.openArtifacts.delete(el.dataset.name);
+    });
+  });
+}
+
+function artifactEntry(a) {
+  const removed = a.removed_at != null && a.removed_at <= state.step;
+  // Full edit trail = past versions plus the current one, oldest first.
+  const versions = [...(a.past_versions || []), {
+    payload: a.payload,
+    version: a.version ?? 0,
+    version_creation_time: a.version_creation_time ?? a.created_at,
+  }].filter((v) => (v.version_creation_time ?? 0) <= state.step);
+  const cur = versions[versions.length - 1];
+
+  const edits = (a.editors || []).filter((e) => e.t <= state.step);
+  // Passive reads fire every step a being stands on the cell, so a raw list
+  // would swamp the panel: aggregate per reader.
+  const readsBy = {};
+  for (const r of (a.readers || []).filter((r) => r.t <= state.step)) {
+    const prev = readsBy[r.agent_tag] || { n: 0, last: -1 };
+    readsBy[r.agent_tag] = { n: prev.n + 1, last: Math.max(prev.last, r.t) };
+  }
+
+  const meta = [
+    `by ${esc(a.created_by ?? a.creator_tag ?? "?")}`,
+    `step ${a.created_at ?? "?"}`,
+    versions.length > 1 ? `v${cur.version}` : "",
+    removed ? `gone at ${a.removed_at}` : "",
+  ].filter(Boolean).join(" · ");
+
+  return `<details class="artifact" data-name="${esc(a.name)}"
+      ${state.openArtifacts.has(a.name) ? "open" : ""} ${removed ? 'style="opacity:.55"' : ""}>
+    <summary><span style="color:var(--s6)">◆</span>
+      <span class="art-name">${esc(a.name)}</span>
+      <span class="subtitle">${meta}</span></summary>
+    <div class="payload">${esc(cur?.payload || "(empty)")}</div>
+    ${versions.length > 1 ? `<div class="art-sec">History</div>` +
+      versions.slice(0, -1).reverse().map((v) => `
+        <details class="ver">
+          <summary class="subtitle">v${v.version} · step ${v.version_creation_time}</summary>
+          <div class="payload">${esc(v.payload || "(empty)")}</div>
+        </details>`).join("") : ""}
+    ${edits.length || Object.keys(readsBy).length ? `<div class="art-sec">Interactions</div>` : ""}
+    ${edits.map((e) => `<div class="stat-row">
+      <span>${esc(e.agent_tag)} ${e.action?.startsWith("destroy") ? "destroyed" : "edited"}</span>
+      <b>step ${e.t}</b></div>`).join("")}
+    ${Object.entries(readsBy).map(([tag, r]) => `<div class="stat-row">
+      <span>${esc(tag)} read ×${r.n}</span><b>last step ${r.last}</b></div>`).join("")}
+  </details>`;
+}
+
+function openArtifact(name) {
+  state.openArtifacts.add(name);
+  drawArtifacts();
+  const el = document.querySelector(`details.artifact[data-name="${CSS.escape(name)}"]`);
+  if (el) el.scrollIntoView({ block: "nearest" });
+}
+
 /* ---------------- charts ---------------- */
 
 async function refreshSeries() {
   state.series = await api(`/api/runs/${state.run}/series`);
+  try { state.artifacts = (await api(`/api/runs/${state.run}/artifacts`)).artifacts; }
+  catch { state.artifacts = []; }
   if (state.meta.has_viral) {
     try { state.viral = await api(`/api/runs/${state.run}/viral`); } catch { state.viral = null; }
   }
@@ -653,6 +743,10 @@ function hookTooltip() {
     const x = Math.floor((e.clientY - rect.top) / cell);
     for (const [tag, a] of Object.entries(state.world.agents)) {
       if (a[0] === x && a[1] === y) { selectAgent(tag); return; }
+    }
+    // No being on the cell: a click on a diamond opens it in the panel.
+    for (const [ax, ay, name] of state.world.artifacts) {
+      if (ax === x && ay === y) { openArtifact(name); return; }
     }
   });
 }

@@ -377,9 +377,15 @@ class RunReader:
                     continue
                 who = {"agent_tag": e.get("agent_tag"), "t": e.get("timestamp")}
                 if event == "ARTIFACT_INTERACTION":
+                    # The action string tells an edit from a destroy; a destroy
+                    # leaves the payload alone, so copying it is still correct.
+                    who["action"] = e.get("action")
                     entry["editors"].append(who)
                     entry["payload"] = art.get("payload", entry.get("payload"))
                     entry["version"] = art.get("version", entry.get("version"))
+                    entry["version_creation_time"] = art.get(
+                        "version_creation_time", entry.get("version_creation_time")
+                    )
                     entry["past_versions"] = art.get("past_versions", [])
                 else:
                     entry["readers"].append(who)

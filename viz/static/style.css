@@ -174,7 +174,8 @@ main {
 #map-wrap { flex: 1; position: relative; min-height: 0; display: grid; place-items: center; }
 #map { display: block; cursor: crosshair; }
 
-#chat-panel { grid-column: 2; grid-row: 1 / 3; }
+#chat-panel { grid-column: 2; grid-row: 1; }
+#artifacts-panel { grid-column: 2; grid-row: 2; max-height: 32vh; }
 #side { grid-column: 3; grid-row: 1; min-height: 330px; }
 #thought { grid-column: 3; grid-row: 2; max-height: 32vh; }
 
@@ -314,6 +315,32 @@ footer.charts {
   border-left: 2px solid var(--s6);
   padding-left: 10px;
 }
+
+/* ---------- artifacts ---------- */
+
+.artifact { border-bottom: 1px solid var(--grid-line); padding: 5px 0; font-size: 12.5px; }
+.artifact:last-child { border-bottom: 0; }
+.artifact > summary { cursor: pointer; }
+.artifact .art-name { font-weight: 600; }
+/* Same idiom as the thought quote: violet is the artifact hue everywhere
+   (map diamond, count chart), so a violet rule marks "text an artifact holds". */
+.artifact .payload {
+  white-space: pre-wrap;
+  color: var(--ink-2);
+  font-size: 12px;
+  border-left: 2px solid var(--s6);
+  padding-left: 10px;
+  margin: 6px 0 6px 14px;
+}
+.artifact .art-sec {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin: 8px 0 3px 14px;
+}
+.artifact .stat-row, .artifact .ver { margin-left: 14px; }
+.artifact .ver > summary { cursor: pointer; }
 
 /* ---------- chat ---------- */
 
