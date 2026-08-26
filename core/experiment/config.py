@@ -208,6 +208,13 @@ class EnvConfig:
         default=0,
         metadata={"help": "Timestep at which the viral outbreak happens"},
     )
+    verbose: int = field(
+        default=1,
+        metadata={
+            "help": "Terminal chatter from the environment: 0 warnings only, "
+            "1 key events (deaths, births, infections, seeding), 2 per-step debug"
+        },
+    )
     vision_radius: int = field(default=6, metadata={"help": "Vision radius"})
 
     def __post_init__(self):
@@ -231,6 +238,7 @@ class EnvConfig:
         assert 0.0 <= self.ppe_protection <= 1.0, (
             "ppe_protection must be in [0, 1]"
         )
+        assert self.verbose in (0, 1, 2), "verbose must be 0, 1 or 2"
         assert self.viral_init_infected >= 0, (
             "viral_init_infected cannot be negative"
         )

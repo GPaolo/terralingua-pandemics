@@ -77,7 +77,7 @@ class OpenGridWorld:
         food_zones: int | List[Tuple[int, int]] | None = None,
         static_food: bool = False,
         food_mechanism: bool = True,
-        verbose: int = 2,
+        verbose: int = 1,  # 0: warnings only, 1: key events, 2: per-step debug
         inert_artifacts: bool = False,
         viral_init_infected: int = 0,
         viral_outbreak_step: int = 0,
@@ -236,9 +236,10 @@ class OpenGridWorld:
         self.agent_registry[agent_tag] = agent_type
         self.agent_names[agent_tag] = agent_name
         self._place_agent(agent_tag, p=position)
-        print(
-            f"Adding agent {self.agent_names[agent_tag]}({agent_tag}) of type {agent_type} at position {self.agent_pos[agent_tag]}."
-        )
+        if self.verbose >= 2:
+            print(
+                f"Adding agent {self.agent_names[agent_tag]}({agent_tag}) of type {agent_type} at position {self.agent_pos[agent_tag]}."
+            )
         if self.logger:
             self.logger.log(
                 time=self.step_count,
@@ -293,14 +294,15 @@ class OpenGridWorld:
         elif art_type == "ppe":
             while art_name in self.artifacts:
                 art_name = f"{art_name}_1"
+            # No payload given -> keep the class's default description
             artifact = PPEArtifact(
                 name=art_name,
-                payload=payload,
                 pose=pose,
                 creator=creator,
                 lifespan=lifespan,
                 creation_time=self.step_count,
                 protection=self.ppe_protection,
+                **({"payload": payload} if payload else {}),
             )
         else:
             return f"Artifact type: {art_type} is not a valid type. Only artifact valid types are: {list(ARTIFACT_TYPE.keys())}"
@@ -430,9 +432,10 @@ class OpenGridWorld:
             )
 
         self._place_agent(agent_tag, p=position)
-        print(
-            f"Agent {self.agent_names[agent_tag]} reset. Respawning at position {self.agent_pos[agent_tag]}."
-        )
+        if self.verbose >= 1:
+            print(
+                f"Agent {self.agent_names[agent_tag]} reset. Respawning at position {self.agent_pos[agent_tag]}."
+            )
 
         if self.logger:
             self.logger.log(
@@ -644,9 +647,10 @@ class OpenGridWorld:
                 action_params = {"direction": "stay"}
 
             if action_name not in self.agent_avail_actions[agent]:
-                print(
-                    f"{self.agent_names[agent]}({agent}) - Unknown action: {action_name} - Available actions: {list(self.agent_avail_actions[agent].keys())}"
-                )
+                if self.verbose >= 1:
+                    print(
+                        f"{self.agent_names[agent]}({agent}) - Unknown action: {action_name} - Available actions: {list(self.agent_avail_actions[agent].keys())}"
+                    )
                 action_name = "move"
                 action_params["direction"] = "stay"
 
@@ -655,9 +659,10 @@ class OpenGridWorld:
             )
 
             if not set(action_params.keys()) == set(avail_params.keys()):
-                print(
-                    f"{self.agent_names[agent]}({agent}) - Provided action params: {list(action_params.keys())} do not match required {avail_params}"
-                )
+                if self.verbose >= 1:
+                    print(
+                        f"{self.agent_names[agent]}({agent}) - Provided action params: {list(action_params.keys())} do not match required {avail_params}"
+                    )
                 action_name = "move"
                 action_params["direction"] = "stay"
 
@@ -799,8 +804,9 @@ class OpenGridWorld:
                     self.agent_energy[new_agent_idx] += additional_energy
                     self.agent_energy[agent] -= additional_energy
 
-                    print(f"""Agent {offspring_name}({new_agent_idx}) is born from {self.agent_names[agent]}({agent}).
-{offspring_name}({new_agent_idx}) energy: {self.agent_energy[new_agent_idx]} 
+                    if self.verbose >= 1:
+                        print(f"""Agent {offspring_name}({new_agent_idx}) is born from {self.agent_names[agent]}({agent}).
+{offspring_name}({new_agent_idx}) energy: {self.agent_energy[new_agent_idx]}
 {self.agent_names[agent]}({agent}) energy: {self.agent_energy[agent]}""")
 
                     reprod_info = {
@@ -1568,7 +1574,8 @@ class OpenGridWorld:
         elif self.agent_energy[agent] <= 0:
             announcement += "of hunger."
             reason = "hunger"
-        print(announcement)
+        if self.verbose >= 1:
+            print(announcement)
         self.agent_registry.pop(agent, None)
         energy = self.agent_energy.pop(agent, 0)
         self.agent_time.pop(agent, None)
@@ -1899,7 +1906,8 @@ class OpenGridWorld:
                     if to_inventory is not None
                     else f"at {pose}"
                 )
-                print(f"🌱 Seeded artifact {entry['name']} {where} 🌱")
+                if self.verbose >= 1:
+                    print(f"🌱 Seeded artifact {entry['name']} {where} 🌱")
             else:
                 print(f"⚠️  Failed to seed artifact {entry['name']}: {status}")
         self._pending_init_artifacts = remaining
@@ -1927,9 +1935,10 @@ class OpenGridWorld:
                     infos.setdefault(agent_tag, {})["Infection"] = (
                         f"Artifact {art_name} appeared in your inventory."
                     )
-                print(
-                    f"🦠 Viral outbreak: {self.agent_names[agent_tag]}({agent_tag}) infected with {art_name} 🦠"
-                )
+                if self.verbose >= 1:
+                    print(
+                        f"🦠 Viral outbreak: {self.agent_names[agent_tag]}({agent_tag}) infected with {art_name} 🦠"
+                    )
 
     def _spread_viral_artifacts(self, infos: dict):
         """Spreads viral artifacts to agents nearby their current location.
@@ -2638,7 +2647,8 @@ class OpenGridWorld:
             )
 
     def close(self):
-        print("Saving environment...")
+        if self.verbose >= 1:
+            print("Saving environment...")
         self.logger.log(
             time=self.step_count,
             event_type=Event.END_RUN,
@@ -2688,11 +2698,13 @@ class OpenGridWorld:
 
     def save_state(self, filepath: str | Path):
         """Saves the environment state to a file."""
-        print("Saving environment state at:", filepath)
+        if self.verbose >= 1:
+            print("Saving environment state at:", filepath)
         state_ckpt = self.get_state_ckpt()
         with open(filepath, "wb") as f:
             pickle.dump(state_ckpt, f)
-        print("Environment state saved at: ", filepath)
+        if self.verbose >= 1:
+            print("Environment state saved at: ", filepath)
 
     def load_state(self, filepath: str | Path | None = None):
         """Loads the environment state from a file."""
@@ -2700,11 +2712,13 @@ class OpenGridWorld:
             filepath = self.log_path / "env_state.pkl"
 
         assert Path(filepath).exists(), f"State file {filepath} does not exist."
-        print("Loading environment state from:", filepath)
+        if self.verbose >= 1:
+            print("Loading environment state from:", filepath)
         with open(filepath, "rb") as f:
             state_ckpt = pickle.load(f)
         self.set_state_ckpt(state_ckpt)
-        print("Environment state loaded from:", filepath)
+        if self.verbose >= 1:
+            print("Environment state loaded from:", filepath)
 
 
 if __name__ == "__main__":

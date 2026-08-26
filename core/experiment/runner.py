@@ -153,6 +153,7 @@ class SimulationRunner:
             viral_energy_multiplier=self.params.env.viral_energy_multiplier,
             ppe_protection=self.params.env.ppe_protection,
             init_artifacts=self.params.env.init_artifacts,
+            verbose=self.params.env.verbose,
             parent_authored_genome=self.params.agent.genome == "sentence_directed",
             log_world_state=self.params.run.log_world_state,
         )
