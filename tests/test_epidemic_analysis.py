@@ -14,8 +14,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import numpy as np
-
 from core.environment.env import OpenGridWorld
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,10 +58,11 @@ def build_epidemic_run(out: Path, steps: int = 60, grid: int = 9, n_agents: int 
         open(out / "params.json", "w"),
     )
 
-    # Cluster everyone so the outbreak reliably takes off.
+    # Cluster everyone so the outbreak reliably takes off. Seeding the restart
+    # matters: an unseeded restart draws the food layout from a fresh rng and
+    # the whole epidemic becomes nondeterministic.
     poses = {tag: (2 + i // 3, 2 + i % 3) for i, tag in enumerate(tags)}
-    env.restart_env(agent_poses=poses)
-    env.rng = np.random.default_rng(seed)
+    env.restart_env(seed=seed, agent_poses=poses)
     rng = random.Random(seed)
 
     for _ in range(steps):
