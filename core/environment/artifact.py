@@ -426,6 +426,9 @@ class ViralArtifact(Artifact):
         # to viral_mobile_days to split the illness into an early ambulatory
         # ("dry") phase and the bedridden ("wet") one.
         self.days_symptomatic = 0
+        # Set at the host's death: last step of the mourning period, before
+        # which the remains refuse burial. -1 means always buriable.
+        self.buriable_after = -1
         # Set when the host dies: how the artifact presents to agents and the
         # dashboard ("remains_of_<host>"). The internal name never changes, so
         # transmission chains keyed on it stay intact.
@@ -476,6 +479,8 @@ class ViralArtifact(Artifact):
         serialized = super().serialize()
         serialized["strain"] = self.strain
         serialized["incubation"] = self.incubation
+        serialized["days_symptomatic"] = self.days_symptomatic
+        serialized["buriable_after"] = self.buriable_after
         if self.display_name:
             serialized["display_name"] = self.display_name
         return serialized
@@ -487,5 +492,7 @@ class ViralArtifact(Artifact):
         # Runs predating the incubation phase have none: they were symptomatic
         # from the moment they were created.
         artifact.incubation = data.get("incubation", 0)
+        artifact.days_symptomatic = data.get("days_symptomatic", 0)
+        artifact.buriable_after = data.get("buriable_after", -1)
         artifact.display_name = data.get("display_name")
         return artifact

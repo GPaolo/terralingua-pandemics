@@ -135,11 +135,19 @@ Traps:
   window rather than eating it. A corpse matures instantly (`_kill` zeroes
   `incubation`) so `viral_dropped_lifespan` keeps its plain meaning.
 - With `--funeral_announcements`, a death that drops remains is announced
-  **once** to every living being (`infos["Deaths"]`), with walkable directions
-  from `_compass_offset` ("3 cells up, 2 cells right" — MOVE_DICT words,
-  shortest way around the torus). Gathering at the corpse is the being's own
-  choice; the exposure stays in the ordinary ground-artifact spread and the
-  `bury` roll. Queued in `_kill` (`_pending_funerals`), flushed in `step`.
+  **once** (`infos["Deaths"]`) to beings within `funeral_announcement_radius`
+  (-1: everyone; further beings only learn by word of mouth), with walkable
+  directions from `_compass_offset` ("3 cells up, 2 cells right" — MOVE_DICT
+  words, shortest way around the torus) and **never the cause**. Remains
+  refuse burial for `funeral_mourning_days` (`buriable_after` on the
+  artifact; 0 = buriable at once and the text says "may be buried", no "0
+  days"), and the step the mourning ends a reminder goes out to earshot
+  (`_pending_burial_reminders`) — skipped if the remains are already gone.
+  **The burial is the funeral**: every other being within 1 cell of the grave
+  rolls an exposure at `funeral_attendance_multiplier` (digger:
+  `burial_infection_multiplier`; elsewhere: nothing), and the BURIAL event
+  logs the `attendees`. Queued in `_kill` (`_pending_funerals`), flushed in
+  `step`.
 - `env.reset(agent_tag)` resets **one agent**. The whole-world reset is
   `env.restart_env(seed=..., **options)`.
 - `env.add_agent` requires `agent_name` as well as `agent_tag`.

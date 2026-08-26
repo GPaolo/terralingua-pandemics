@@ -188,8 +188,30 @@ class EnvConfig:
     funeral_announcements: bool = field(
         default=False,
         metadata={
-            "help": "Announce deaths that leave remains to every living being, "
-            "with directions, so gathering at the corpse is a choice"
+            "help": "Announce deaths that leave remains, with directions, so "
+            "gathering at the corpse is a choice"
+        },
+    )
+    funeral_announcement_radius: int = field(
+        default=-1,
+        metadata={
+            "help": "How far funeral news travels on its own (-1: the whole "
+            "map); beings further away only learn by word of mouth"
+        },
+    )
+    funeral_attendance_multiplier: float = field(
+        default=1.0,
+        metadata={
+            "help": "Beings beside the grave when remains are buried roll an "
+            "exposure at this multiple of viral_infection_probability "
+            "(the digger uses burial_infection_multiplier)"
+        },
+    )
+    funeral_mourning_days: int = field(
+        default=0,
+        metadata={
+            "help": "Steps remains refuse burial after the death, so mourners "
+            "can gather first (0: buriable at once)"
         },
     )
     viral_contact_multiplier: float = field(
@@ -306,6 +328,12 @@ class EnvConfig:
         )
         assert self.viral_contact_multiplier >= 0, (
             "viral_contact_multiplier cannot be negative"
+        )
+        assert self.funeral_attendance_multiplier >= 0, (
+            "funeral_attendance_multiplier cannot be negative"
+        )
+        assert self.funeral_mourning_days >= 0, (
+            "funeral_mourning_days cannot be negative"
         )
         assert self.viral_mobile_days >= 0, (
             "viral_mobile_days cannot be negative"

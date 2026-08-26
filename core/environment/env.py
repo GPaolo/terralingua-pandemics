@@ -117,6 +117,9 @@ class OpenGridWorld:
         burials: bool = False,
         burial_infection_multiplier: float = 2.0,
         funeral_announcements: bool = False,
+        funeral_announcement_radius: int = -1,
+        funeral_attendance_multiplier: float = 1.0,
+        funeral_mourning_days: int = 0,
         max_message_size: int = -1,  # tokens per message; -1: unlimited
         max_text_artifact_size: int = MAX_TEXT_ARTIFACT_SIZE,  # tokens per text artifact
         init_artifacts: str | Path | List[dict] | None = None,
@@ -140,50 +143,31 @@ class OpenGridWorld:
         self.artifact_creation_cost = artifact_creation_cost
         self.artifact_creation = artifact_creation
         self.inert_artifacts = inert_artifacts
-        # Viral artifacts: viral_init_infected agents get infected at
-        # step viral_outbreak_step (0 initial infected disables the mechanic)
         self.viral_init_infected = viral_init_infected
         self.viral_outbreak_step = viral_outbreak_step
         self.viral_lifespan = viral_lifespan
-        # Each infection draws its own incubation from [min, max]: the host is a
-        # silent, harmless carrier until it runs out. viral_lifespan then counts
-        # the symptomatic period, so latency does not eat the infectious window.
         self.viral_incubation_min = viral_incubation_min
         self.viral_incubation_max = viral_incubation_max
         self.viral_dropped_lifespan = viral_dropped_lifespan
         self.viral_infection_radius = viral_infection_radius
         self.viral_infection_probability = viral_infection_probability
-        # Touching (give/take energy) scales the exposure: physical contact
-        # carries more risk than standing nearby. Burials have their own knob.
         self.viral_contact_multiplier = viral_contact_multiplier
-        # The illness has two symptomatic phases: for the first
-        # viral_mobile_days the host is "dry" — feverish but ambulatory, and
-        # transmitting at viral_mobile_infectiousness x the usual rate. After
-        # that it is bedridden: frozen, no appetite, fully infectious. 0 mobile
-        # days reproduces the old behaviour (bedridden at symptom onset).
         self.viral_mobile_days = viral_mobile_days
         self.viral_mobile_infectiousness = viral_mobile_infectiousness
         self.viral_energy_multiplier = viral_energy_multiplier
-        # Per-step chance that a symptomatic agent dies of the sickness
         self.viral_death_probability = viral_death_probability
-        # Multiplier on the contraction probability of an agent carrying PPE
         self.ppe_protection = ppe_protection
-        # Beings next to remains (a ground viral artifact) may bury them,
-        # removing the artifact at burial_infection_multiplier x the usual
-        # contact risk of catching the infection themselves
         self.burials = burials
         self.burial_infection_multiplier = burial_infection_multiplier
-        # A death that drops remains is announced to every living being, with
-        # directions, so gathering to mourn (or bury) is a choice each being
-        # makes — and the exposure that follows is self-inflicted
         self.funeral_announcements = funeral_announcements
-        self._pending_funerals: List[Tuple[str, Tuple[int, int], str]] = []
+        self.funeral_announcement_radius = funeral_announcement_radius
+        self.funeral_attendance_multiplier = funeral_attendance_multiplier
+        self.funeral_mourning_days = funeral_mourning_days
+        self._pending_funerals: List[Tuple[str, Tuple[int, int]]] = []
+        self._pending_burial_reminders: List[Tuple[str, Tuple[int, int], int]] = []
         self.max_message_size = max_message_size
         self.max_text_artifact_size = max_text_artifact_size
         self._token_encoder = None  # lazy: only needed when messages are capped
-        # Artifacts seeded by the environment itself, as a list of entries
-        # {name, payload, pose, lifespan, step} or a path to a JSON file
-        # containing such a list
         self.init_artifacts = self._load_init_artifacts(init_artifacts)
         self.reproduction_allowed = reproduction_allowed
         self.parent_authored_genome = parent_authored_genome
@@ -563,6 +547,7 @@ class OpenGridWorld:
         self.agent_recoveries = defaultdict(int)
         self.agent_known_recoveries = defaultdict(int)
         self._pending_funerals = []
+        self._pending_burial_reminders = []
         self.artifacts_map = defaultdict(set)
         self.artifacts = {}
         self.expired_artifacts = []
@@ -876,12 +861,25 @@ class OpenGridWorld:
                         f"There are no remains named '{ref}' within reach to bury.",
                     )
                     rewards[agent] -= 1
+                elif artifact.buriable_after >= self.step_count:
+                    self._note_outcome(
+                        infos,
+                        agent,
+                        f"The mourning for {artifact.display_name or art_name} "
+                        "has not ended: they cannot be buried yet.",
+                    )
+                    rewards[agent] -= 1
                 else:
                     # Handling the remains is one extra exposure at scaled risk,
                     # rolled before removal so the copy has a source; PPE still
                     # protects the digger.
                     if self.rng is None:
                         self.rng = np.random.default_rng()
+                    pos = None
+                    for cell in list(self.artifacts_map):
+                        if art_name in self.artifacts_map[cell]:
+                            pos = cell
+                            break
                     risk = (
                         self.viral_infection_probability
                         * self.burial_infection_multiplier
@@ -892,12 +890,33 @@ class OpenGridWorld:
                         caught = self.infect_agent(
                             agent_tag=agent, source_artifact=artifact
                         )
-                    pos = None
-                    for cell in list(self.artifacts_map):
-                        if art_name in self.artifacts_map[cell]:
-                            pos = cell
-                            self.artifacts_map[cell].discard(art_name)
-                            break
+                    # The burial is the funeral: everyone else beside the
+                    # grave takes a lesser ritual-contact exposure — the
+                    # digger handles the body, the mourners touch it less.
+                    attendees = []
+                    if pos is not None:
+                        for other in self.agent_registry:
+                            if other == agent:
+                                continue
+                            if self._toroidal_distance(pos, self.agent_pos[other]) > 1:
+                                continue
+                            attendees.append(other)
+                            attend_risk = (
+                                self.viral_infection_probability
+                                * self.funeral_attendance_multiplier
+                                * self._infection_protection(other)
+                            )
+                            if self.rng.random() < attend_risk:
+                                got = self.infect_agent(
+                                    agent_tag=other, source_artifact=artifact
+                                )
+                                # Say nothing while it incubates
+                                if got is not None and self.artifacts[got].symptomatic:
+                                    infos.setdefault(other, {})["Infection"] = (
+                                        f"Artifact {got} appeared in your inventory."
+                                    )
+                    if pos is not None:
+                        self.artifacts_map[pos].discard(art_name)
                     self.artifacts.pop(art_name, None)
                     artifact.deletion_time = self.step_count
                     self.expired_artifacts.append(artifact)
@@ -919,6 +938,7 @@ class OpenGridWorld:
                         artifact=artifact.serialize(),
                         pose=pos,
                         infected=caught is not None,
+                        attendees=attendees,
                     )
 
             elif action_name in ("give", "take"):
@@ -1556,20 +1576,49 @@ class OpenGridWorld:
             done_dict[a] = True
             rewards[a] -= 100
 
-        # Funerals: deaths that left remains are announced to every living
-        # being, with directions. Whether to gather — and risk the corpse —
-        # is each being's own call.
-        if self._pending_funerals:
+        # Funerals: deaths that left remains are announced to the beings
+        # within earshot, with directions — never the cause; working that out
+        # is their problem. Whether to gather, and risk the corpse, is each
+        # being's own call.
+        if self._pending_funerals or self._pending_burial_reminders:
+            if self.funeral_mourning_days > 0:
+                d = self.funeral_mourning_days
+                mourning = (
+                    f" The mourning lasts {d} day{'s' if d != 1 else ''}; "
+                    "only then may the remains be buried."
+                )
+            else:
+                mourning = " The remains may be buried."
+            due = [r for r in self._pending_burial_reminders if r[2] == self.step_count]
+            self._pending_burial_reminders = [
+                r for r in self._pending_burial_reminders if r[2] > self.step_count
+            ]
             for tag in self.agent_registry:
                 notes = []
-                for name, pos, reason in self._pending_funerals:
-                    cause = " of the sickness" if reason == "sickness" else ""
+                for name, pos in self._pending_funerals:
+                    if not self._within_earshot(tag, pos):
+                        continue
                     notes.append(
-                        f"{name} has died{cause}. Word spreads that their "
-                        f"remains lie unburied "
-                        f"{self._compass_offset(self.agent_pos[tag], pos)}."
+                        f"{name} has died. Word spreads that their remains lie "
+                        f"unburied {self._compass_offset(self.agent_pos[tag], pos)}."
+                        f"{mourning}"
                     )
-                infos.setdefault(tag, {})["Deaths"] = " ".join(notes)
+                for name, pos, _ in due:
+                    # Skip if the remains are already gone (buried or expired)
+                    if not any(
+                        isinstance(self.artifacts.get(n), ViralArtifact)
+                        for n in self.artifacts_map.get(pos, ())
+                    ):
+                        continue
+                    if not self._within_earshot(tag, pos):
+                        continue
+                    notes.append(
+                        f"The mourning for {name} has ended: their remains "
+                        f"({self._compass_offset(self.agent_pos[tag], pos)}) "
+                        "may now be buried."
+                    )
+                if notes:
+                    infos.setdefault(tag, {})["Deaths"] = " ".join(notes)
             self._pending_funerals = []
 
         # ---- handle food ----
@@ -1948,6 +1997,12 @@ class OpenGridWorld:
                         # Present as the corpse it is; the internal name stays
                         # so transmission chains keyed on it survive.
                         artifact.display_name = f"remains_of_{self.agent_names[agent]}"
+                        # Mourning: blocked steps are step_count+1 ..
+                        # buriable_after inclusive, so 0 days = buriable at
+                        # the very next step
+                        artifact.buriable_after = (
+                            self.step_count + self.funeral_mourning_days
+                        )
                         dropped_remains = True
                     if art_name not in self.artifacts_map[pos]:
                         self.artifacts_map[pos].add(art_name)
@@ -1980,7 +2035,15 @@ class OpenGridWorld:
                 pass
 
         if dropped_remains and self.funeral_announcements:
-            self._pending_funerals.append((self.agent_names[agent], pos, reason))
+            self._pending_funerals.append((self.agent_names[agent], pos))
+            if self.funeral_mourning_days > 0:
+                self._pending_burial_reminders.append(
+                    (
+                        self.agent_names[agent],
+                        pos,
+                        self.step_count + self.funeral_mourning_days,
+                    )
+                )
 
         if self.logger:
             self.logger.log(
@@ -2264,6 +2327,19 @@ class OpenGridWorld:
         dx = abs(pos_a[0] - pos_b[0])
         dy = abs(pos_a[1] - pos_b[1])
         return max(min(dx, self.grid_size - dx), min(dy, self.grid_size - dy))
+
+    def _within_earshot(self, agent_tag: str, pos) -> bool:
+        """Whether funeral news from pos reaches this being directly.
+
+        Beyond funeral_announcement_radius (-1: everywhere) a being only
+        learns of a death if someone tells it.
+        """
+        if self.funeral_announcement_radius < 0:
+            return True
+        return (
+            self._toroidal_distance(self.agent_pos[agent_tag], pos)
+            <= self.funeral_announcement_radius
+        )
 
     def _compass_offset(self, from_pos, to_pos) -> str:
         """Shortest offset on the torus, in the words agents move by.
