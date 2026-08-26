@@ -168,6 +168,7 @@ class OpenGridWorld:
         self.food: Dict[Tuple[int, int], float] = {}  # {(x, y): value} for food tiles
         self.food_count: List[float] = []
         self.food_distribution = None
+        self._food_cdf = None  # rebuilt lazily by _sample_density_cell
         self.empty_food: List[Tuple[int, int]] = []
 
         self.artifacts: Dict[str, Artifact] = {}  # {artifact_name: Artifact}
@@ -1427,7 +1428,20 @@ class OpenGridWorld:
             density /= total
 
         self.food_distribution = density
+        self._food_cdf = None
         return density
+
+    def _sample_density_cell(self) -> Tuple[int, int]:
+        """One i.i.d. draw from the (fixed) food density; returns an (x, y) cell."""
+        if self.food_distribution is None:
+            self._get_food_distribution()
+        if self._food_cdf is None:
+            cdf = np.cumsum(self.food_distribution.ravel().astype(np.float64))  # type: ignore
+            cdf[-1] = 1.0  # guard rounding so searchsorted stays in range
+            self._food_cdf = cdf
+        idx = int(np.searchsorted(self._food_cdf, self.rng.random(), side="right"))
+        y, x = divmod(idx, self.grid_size)
+        return (int(x), int(y))
 
     def _seed_initial_food(self):
         if self.rng is None:
@@ -1435,46 +1449,43 @@ class OpenGridWorld:
 
         density = self._get_food_distribution()
 
+        # Hard count: zones fill first, surplus spills onto low-probability cells.
         flat_p = density.ravel()
-        # choose without replacement if possible; fall back to with replacement if n > H*W
-        idx = self.rng.choice(
-            self.grid_size**2, size=self._init_food_count, replace=False, p=flat_p
-        )
-        ys = idx // self.grid_size
-        xs = idx % self.grid_size
-        spots = np.stack([xs, ys], axis=1).astype(int)
-        self.food = {tuple(pos): self._max_food_value for pos in spots}
+        nnz = int(np.count_nonzero(flat_p))
+        if nnz >= self._init_food_count:
+            idx = self.rng.choice(
+                self.grid_size**2,
+                size=self._init_food_count,
+                replace=False,
+                p=flat_p,
+            )
+        else:
+            # tail underflowed to zero: take every cell with mass, rest uniform
+            idx_nz = np.flatnonzero(flat_p)
+            idx_zero = self.rng.choice(
+                np.flatnonzero(flat_p == 0),
+                size=self._init_food_count - nnz,
+                replace=False,
+            )
+            idx = np.concatenate([idx_nz, idx_zero])
+        ys, xs = np.divmod(idx, self.grid_size)
+        self.food = {(int(x), int(y)): self._max_food_value for x, y in zip(xs, ys)}
         self.empty_food = []
 
     def _respawn_food_one(self):
         if self.rng is None:
             self.rng = np.random.default_rng()
 
-        if self.food_distribution is None:
-            self._get_food_distribution()
-
         if not self.static_food:
-            flat = self.food_distribution.ravel().astype(np.float64).copy()  # type: ignore
-            for agent_pose in self.agent_pos.values():
-                x, y = agent_pose
-                flat[y * self.grid_size + x] = 0.0
-            for food_pose in self.food:
-                x, y = food_pose
-                flat[y * self.grid_size + x] = 0.0
-            for art_pose in self.artifacts_map:
-                x, y = art_pose
-                flat[y * self.grid_size + x] = 0.0
-
-            s = flat.sum()
-            if not np.isfinite(s) or s <= 0.0:
-                print("No available cell with nonzero probability to respawn food")
+            # One draw from the fixed density; occupied cell -> the spawn fails
+            # this step, so spawns never drift out of the zones as they fill.
+            p = self._sample_density_cell()
+            if (
+                p in self.food
+                or p in self.artifacts_map
+                or p in self.agent_pos.values()
+            ):
                 return
-            flat /= s
-
-            idx = int(self.rng.choice(self.grid_size * self.grid_size, p=flat))
-            y = idx // self.grid_size
-            x = idx % self.grid_size
-            p = (int(x), int(y))
             self.food[p] = self._max_food_value
         else:
             if len(self.empty_food):
@@ -1484,33 +1495,32 @@ class OpenGridWorld:
 
     def _decay_and_respawn_food(self):
         """Decay food values and respawn expired ones"""
-        if len(self.food) == 0:
-            return
-
         if self.rng is None:
             self.rng = np.random.default_rng()
 
-        food_positions = np.array(list(self.food.keys()))
-        food_values = np.array(list(self.food.values()))
+        # Spawning below must still run when the map is bare
+        if len(self.food) > 0:
+            food_positions = np.array(list(self.food.keys()))
+            food_values = np.array(list(self.food.values()))
 
-        # randomly choose which ones decay this step
-        to_decay = self.rng.random(food_values.shape[0]) < self._food_decay_rate
-        food_values[to_decay] -= self._food_decay_amount
+            # randomly choose which ones decay this step
+            to_decay = self.rng.random(food_values.shape[0]) < self._food_decay_rate
+            food_values[to_decay] -= self._food_decay_amount
 
-        # find expired food
-        expired = food_values <= 0
-        expired_inds = np.where(expired)[0]
-        decayed_alive = to_decay & ~expired
+            # find expired food
+            expired = food_values <= 0
+            expired_inds = np.where(expired)[0]
+            decayed_alive = to_decay & ~expired
 
-        # Update food values
-        for i in np.where(decayed_alive)[0]:
-            pos = tuple(food_positions[i])
-            self.food[pos] = food_values[i]  # type: ignore
-        # Remove expired food
-        for idx in expired_inds:
-            self.food.pop(tuple(food_positions[idx]), None)
-            if self.static_food:
-                self.empty_food.append(tuple(food_positions[idx]))
+            # Update food values
+            for i in np.where(decayed_alive)[0]:
+                pos = tuple(food_positions[i])
+                self.food[pos] = food_values[i]  # type: ignore
+            # Remove expired food
+            for idx in expired_inds:
+                self.food.pop(tuple(food_positions[idx]), None)
+                if self.static_food:
+                    self.empty_food.append(tuple(food_positions[idx]))
 
         # Spawn food
         n_new_food = self.rng.poisson(self._food_spawn_rate)
