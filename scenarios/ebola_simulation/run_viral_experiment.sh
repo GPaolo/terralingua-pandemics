@@ -7,7 +7,7 @@ cd "$SCENARIO_DIR/../.."
 python main.py \
     \
     `# Experiment` \
-    --exp_name              "ebola_50_agents_30" \
+    --exp_name              "ebola_new_mechanics_big" \
     --exp_description       "Ebola-calibrated contact virus with incubation" \
     --max_ts                200  \
     --max_parallel_workers 20 \
@@ -33,11 +33,11 @@ python main.py \
     --init_artifacts "$SCENARIO_DIR/init_artifacts_ebola.json" `# environment-seeded artifacts: 20 PPE in Miriam's (health worker) inventory` \
     \
     `# Environment` \
-    --grid_size             30 `# size of the grid environment (grid_size x grid_size)` \
-    --init_agents           50 `# initial number of agents in the environment` \
+    --grid_size             100 `# size of the grid environment (grid_size x grid_size)` \
+    --init_agents           150 `# initial number of agents in the environment` \
     --init_human_agents     0 `# initial number of human agents in the environment` \
-    --min_agents            25 `# minimum number of agents in the environment` \
-    --init_agent_energy     100 `# initial energy for each agent` \
+    --min_agents            50 `# minimum number of agents in the environment` \
+    --init_agent_energy     200 `# initial energy for each agent` \
     --init_food             500 `# initial amount of food in the environment` \
     --food_zones            3 `# number of food zones in the environment (areas where food can spawn more frequently)` \
     --food_spawn_rate       10 `# mean food cells spawned per step (Poisson); occupied draws fail silently` \
