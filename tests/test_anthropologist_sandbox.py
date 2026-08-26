@@ -97,22 +97,28 @@ def test_dashboard(run_dir: Path):
     import dashboard
     from fastapi.testclient import TestClient
 
-    client = TestClient(dashboard.create_app(run_dir, "claude-opus-5"))
+    run = run_dir.name
+    client = TestClient(
+        dashboard.create_app(run_dir.parent, "claude-opus-5", run))
     assert client.get("/").status_code == 200
-    state = client.get("/api/state").json()
-    assert state["run"] == run_dir.name
-    assert client.post("/api/report", json={}).status_code == 200
-    state = client.get("/api/state").json()
+    runs = client.get("/api/runs").json()
+    assert run in runs["runs"] and runs["initial"] == run
+    state = client.get(f"/api/state?run={run}").json()
+    assert state["run"] == run
+    assert client.post("/api/report", json={"run": run}).status_code == 200
+    state = client.get(f"/api/state?run={run}").json()
     assert state["metrics"]["outbreak"]["infections"] >= 3
     assert any("epidemic_curves" in u for u in state["plots"])
     for url in state["plots"]:
         assert client.get(url).status_code == 200
-    assert client.get("/plots/report/../params.json").status_code == 404
-    assert client.get("/plots/report/nope.png").status_code == 404
-    ev = client.get("/api/events").json()
+    assert client.get(f"/plots/{run}/report/../params.json").status_code == 404
+    assert client.get(f"/plots/{run}/report/nope.png").status_code == 404
+    assert client.get("/api/state?run=..").status_code in (400, 404)
+    ev = client.get(f"/api/events?run={run}").json()
     assert ev == {"events": [], "busy": False, "auto_run": False}
-    assert client.post("/api/autorun", json={"enabled": True}).json()["auto_run"]
-    print("PASS: dashboard serves state, report, plots; rejects path traversal")
+    assert client.post("/api/autorun",
+                       json={"run": run, "enabled": True}).json()["auto_run"]
+    print("PASS: dashboard serves runs, state, report, plots; rejects traversal")
 
 
 def test_approval_gate(run_dir: Path):
@@ -227,30 +233,62 @@ def test_session_persistence(run_dir: Path):
     import dashboard
     from fastapi.testclient import TestClient
 
+    run = run_dir.name
     st = dashboard.State(run_dir, "claude-opus-5")
-    st.sandbox.close()
     st.add(type="user", text="who was patient zero?")
     st.add(type="assistant", text="Amara.")
     st.messages = [{"role": "user", "content": "who was patient zero?"}]
     st.save()
 
     st2 = dashboard.State(run_dir, "claude-opus-5")
-    st2.sandbox.close()
     assert st2.messages == st.messages
     assert [e["type"] for e in st2.events] == ["user", "assistant", "notice"]
     assert "Restored previous session (1 questions)" in st2.events[-1]["text"]
 
-    client = TestClient(dashboard.create_app(run_dir, "claude-opus-5"))
-    assert len(client.get("/api/events").json()["events"]) == 3
-    files = client.get("/api/files").json()["files"]
+    client = TestClient(
+        dashboard.create_app(run_dir.parent, "claude-opus-5", run))
+    assert len(client.get(f"/api/events?run={run}").json()["events"]) == 3
+    files = client.get(f"/api/files?run={run}").json()["files"]
     assert "world_state.jsonl" in files
-    assert client.post("/api/stop", json={}).status_code == 200
-    app_state = client.app.state.st
+    assert client.post("/api/stop", json={"run": run}).status_code == 200
+    app_state = client.app.state.states[run]
     app_state.stop_requested = False
-    assert client.post("/api/reset", json={}).status_code == 200
-    assert client.get("/api/events").json()["events"] == []
+    assert client.post("/api/reset", json={"run": run}).status_code == 200
+    assert client.get(f"/api/events?run={run}").json()["events"] == []
     assert not app_state.session_path.exists()
     print("PASS: session persists, restores, resets; files endpoint works")
+
+
+def test_compare(run_a: Path, run_b: Path):
+    import compare as cm
+    import dashboard
+    from fastapi.testclient import TestClient
+
+    out = run_a.parent / "_comparisons"
+    for mode, expected in [("average", "avg_epidemic_curves.png"),
+                           ("sidebyside", "cmp_curves.png")]:
+        result = cm.compare([run_a, run_b], mode, out)
+        assert len(result["table"]) == 2
+        assert all(row["infections"] >= 1 for row in result["table"])
+        for name in result["plots"]:
+            assert (out / name).stat().st_size > 0
+        assert expected in result["plots"]
+    try:
+        cm.compare([run_a] * 7, "sidebyside", out)
+        raise AssertionError("7 side-by-side runs should be rejected")
+    except ValueError:
+        pass
+
+    client = TestClient(
+        dashboard.create_app(run_a.parent, "claude-opus-5", run_a.name))
+    r = client.post("/api/compare",
+                    json={"runs": [run_a.name, run_b.name], "mode": "average"})
+    assert r.status_code == 200
+    for url in r.json()["plots"]:
+        assert client.get(url).status_code == 200
+    assert client.post("/api/compare",
+                       json={"runs": [run_a.name]}).status_code == 400
+    print("PASS: compare — averaging and side-by-side plots, table, endpoint")
 
 
 def main():
@@ -258,6 +296,8 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         run = Path(tmp) / "epidemic_test"
         build_epidemic_run(run, steps=40)
+        run_b = Path(tmp) / "epidemic_test_b"
+        build_epidemic_run(run_b, steps=30, seed=7)
         test_worker(run)
         test_dashboard(run)
         test_approval_gate(run)
@@ -265,6 +305,7 @@ def main():
         test_field_notes(run)
         test_interrupt(run)
         test_session_persistence(run)
+        test_compare(run, run_b)
 
 
 if __name__ == "__main__":

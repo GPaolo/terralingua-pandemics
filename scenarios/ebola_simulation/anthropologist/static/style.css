@@ -52,6 +52,34 @@ header {
 }
 header h1 { font-size: 15px; font-weight: 600; margin: 0; }
 .spacer { flex: 1; }
+select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+#compare {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+#runchecks { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 10px; }
+#runchecks label, .cmp-controls label { color: var(--ink-2); font-size: 13px; }
+.cmp-controls { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; }
+.cmp-table { border-collapse: collapse; width: 100%; margin-bottom: 12px; font-size: 13px; }
+.cmp-table th, .cmp-table td {
+  text-align: right;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.cmp-table th { color: var(--ink-2); font-weight: 500; }
+.cmp-table td:first-child, .cmp-table th:first-child { text-align: left; }
 
 button, input[type="text"] {
   font: inherit;

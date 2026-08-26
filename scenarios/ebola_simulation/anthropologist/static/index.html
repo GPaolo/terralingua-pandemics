@@ -8,7 +8,9 @@
 </head>
 <body>
   <header>
-    <h1>Ebola anthropologist — <span id="run">…</span></h1>
+    <h1>Ebola anthropologist</h1>
+    <select id="runsel" title="Active run (report + chat)"></select>
+    <button id="cmp-toggle">Compare runs…</button>
     <div class="spacer"></div>
     <button id="reset" title="Clear the conversation and the sandbox session">Reset chat</button>
     <button id="regen">Regenerate report</button>
@@ -16,6 +18,17 @@
 
   <main>
     <section id="left">
+      <div id="compare" hidden>
+        <div id="runchecks"></div>
+        <div class="cmp-controls">
+          <label><input type="radio" name="cmode" value="average" checked />
+            average as seeds (mean ± band)</label>
+          <label><input type="radio" name="cmode" value="sidebyside" />
+            side by side (≤ 6 runs)</label>
+          <button id="docompare">Compare</button>
+        </div>
+        <div id="cmp-out"></div>
+      </div>
       <div id="tiles" class="tiles"></div>
       <div id="plots" class="plots"></div>
       <p id="no-report" class="muted" hidden>

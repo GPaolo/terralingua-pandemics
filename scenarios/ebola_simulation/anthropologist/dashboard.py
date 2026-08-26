@@ -1,9 +1,11 @@
-"""Web dashboard for one viral run: report metrics + plots + the anthropologist chat.
+"""Web dashboard for viral runs: report metrics + plots + the anthropologist chat.
 
-    python scenarios/ebola_simulation/anthropologist/dashboard.py logs/<exp_name>
+    python scenarios/ebola_simulation/anthropologist/dashboard.py [logs_root|run_dir]
     (serves http://127.0.0.1:8010; --port/--host/--model to change)
 
-Chat needs ANTHROPIC_API_KEY or a .env; the metrics/plots panes work without.
+Serves every run under the logs root; pick the active run in the UI, or
+select several and compare them (seed averaging or side-by-side). Chat needs
+ANTHROPIC_API_KEY or a .env; the metrics/plots panes work without.
 Model-written code runs in the sandbox and, unless auto-run is toggled on in
 the UI, waits for an Approve click first.
 """
@@ -30,6 +32,7 @@ except ImportError:
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import agent  # noqa: E402
+import compare as compare_mod  # noqa: E402
 import report  # noqa: E402
 from sandbox import Sandbox  # noqa: E402
 
@@ -38,6 +41,7 @@ DENIED = ("The user declined to run this code. Explain what it would have "
 INTERRUPTED = "The user interrupted the turn — this code did not run."
 APPROVAL_TIMEOUT = 600
 SAFE_NAME = re.compile(r"^[\w.-]+\.png$")
+SAFE_RUN = re.compile(r"^[\w.-]+$")
 
 
 def _jsonable(obj):
@@ -45,10 +49,13 @@ def _jsonable(obj):
 
 
 class State:
+    """One run's chat session; the sandbox worker spawns on first use."""
+
     def __init__(self, run_dir, model):
         self.run_dir = run_dir
         self.model = model
-        self.sandbox = Sandbox(run_dir)
+        self._sandbox = None
+        self.scope = agent.make_scope(run_dir)
         self.system = agent.build_system(run_dir)
         try:
             self.client = anthropic.Anthropic()
@@ -63,6 +70,16 @@ class State:
         self.stop_requested = False
         self.session_path = run_dir / "epidemic_analysis" / "chat_session.json"
         self._restore()
+
+    @property
+    def sandbox(self):
+        if self._sandbox is None:
+            self._sandbox = Sandbox(self.run_dir)
+        return self._sandbox
+
+    def shutdown(self):
+        if self._sandbox is not None:
+            self._sandbox.close()
 
     def _restore(self):
         if not self.session_path.exists():
@@ -127,7 +144,8 @@ def _executor(st: State):
         event["output"] = out
         new = sorted(p.name for p in st.chat_plots() - before)
         if new:
-            st.add(type="plots", urls=[f"/plots/chat/{n}" for n in new])
+            st.add(type="plots",
+                   urls=[f"/plots/{st.run_dir.name}/chat/{n}" for n in new])
         return out
     return run
 
@@ -140,7 +158,8 @@ def _turn(st: State, question):
                               question, _executor(st),
                               on_text=lambda t: st.add(type="assistant", text=t),
                               on_tool=lambda t: st.add(type="tool", text=t),
-                              should_stop=lambda: st.stop_requested)
+                              should_stop=lambda: st.stop_requested,
+                              scope=st.scope)
         if st.stop_requested:
             st.add(type="notice", text="Turn interrupted.")
         elif last is not None and last.stop_reason == "refusal":
@@ -153,19 +172,48 @@ def _turn(st: State, question):
         st.save()
 
 
-def create_app(run_dir: Path, model: str) -> FastAPI:
+def create_app(logs_root: Path, model: str, initial_run: str = None) -> FastAPI:
     app = FastAPI(title="Ebola anthropologist")
-    st = State(run_dir, model)
-    app.state.st = st
+    states = {}
+    states_lock = threading.Lock()
+    app.state.states = states
+
+    def run_dir_of(name: str) -> Path:
+        if not name or not SAFE_RUN.match(name):
+            raise HTTPException(400, "bad run name")
+        run_dir = (logs_root / name).resolve()
+        if not run_dir.is_relative_to(logs_root.resolve()) \
+                or not (run_dir / "world_state.jsonl").exists():
+            raise HTTPException(404, f"no such run: {name}")
+        return run_dir
+
+    def state_of(name: str) -> State:
+        run_dir = run_dir_of(name)
+        with states_lock:
+            if name not in states:
+                states[name] = State(run_dir, model)
+            return states[name]
 
     @app.get("/")
     def index():
         return FileResponse(HERE / "static" / "index.html")
 
+    @app.get("/api/runs")
+    def runs():
+        found = sorted(
+            (p.parent for p in logs_root.glob("*/world_state.jsonl")),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        )
+        names = [p.name for p in found]
+        return {"runs": names, "model": model,
+                "initial": initial_run if initial_run in names
+                else (names[0] if names else None)}
+
     @app.get("/api/state")
-    def state():
+    def state(run: str):
         import epidemic_utils as eu
 
+        run_dir = run_dir_of(run)
         metrics_path = run_dir / "epidemic_analysis" / "metrics.json"
         metrics = (json.loads(metrics_path.read_text())
                    if metrics_path.exists() else None)
@@ -173,20 +221,34 @@ def create_app(run_dir: Path, model: str) -> FastAPI:
             p.name for p in (run_dir / "epidemic_analysis").glob("*.png")
         ) if (run_dir / "epidemic_analysis").is_dir() else []
         return {
-            "run": run_dir.name,
-            "model": model,
+            "run": run,
             "params": eu.load_params(run_dir).get("env", {}),
             "metrics": metrics,
-            "plots": [f"/plots/report/{n}" for n in plots],
+            "plots": [f"/plots/{run}/report/{n}" for n in plots],
         }
 
     @app.post("/api/report")
-    def regenerate():
-        report.generate(run_dir)
+    def regenerate(body: dict):
+        report.generate(run_dir_of(body.get("run")))
         return {"ok": True}
+
+    @app.post("/api/compare")
+    def compare(body: dict):
+        names = body.get("runs") or []
+        if len(names) < 2:
+            raise HTTPException(400, "pick at least two runs")
+        dirs = [run_dir_of(n) for n in names]
+        out = logs_root / "_comparisons"
+        try:
+            result = compare_mod.compare(dirs, body.get("mode", "average"), out)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        result["plots"] = [f"/compare_plots/{n}" for n in result["plots"]]
+        return result
 
     @app.post("/api/chat")
     def chat(body: dict):
+        st = state_of(body.get("run"))
         question = (body.get("question") or "").strip()
         if not question:
             raise HTTPException(400, "empty question")
@@ -200,13 +262,15 @@ def create_app(run_dir: Path, model: str) -> FastAPI:
         return {"ok": True}
 
     @app.get("/api/events")
-    def events():
+    def events(run: str):
+        st = state_of(run)
         with st.lock:
             return {"events": list(st.events), "busy": st.busy,
                     "auto_run": st.auto_run}
 
     @app.post("/api/approve")
     def approve(body: dict):
+        st = state_of(body.get("run"))
         entry = st.pending.get(body.get("id"))
         if entry is None:
             raise HTTPException(404, "nothing pending under that id")
@@ -217,31 +281,37 @@ def create_app(run_dir: Path, model: str) -> FastAPI:
 
     @app.post("/api/autorun")
     def autorun(body: dict):
+        st = state_of(body.get("run"))
         st.auto_run = bool(body.get("enabled"))
         return {"auto_run": st.auto_run}
 
     @app.post("/api/stop")
-    def stop():
+    def stop(body: dict):
+        st = state_of(body.get("run"))
         st.stop_requested = True
         for gate, decision in list(st.pending.values()):
             decision[0] = False
             gate.set()
-        st.sandbox.interrupt()
+        if st._sandbox is not None:
+            st._sandbox.interrupt()
         return {"ok": True}
 
     @app.post("/api/reset")
-    def reset():
+    def reset(body: dict):
+        st = state_of(body.get("run"))
         with st.lock:
             if st.busy:
                 raise HTTPException(409, "stop the running turn first")
         st.events.clear()
         st.messages.clear()
         st.session_path.unlink(missing_ok=True)
-        st.sandbox.reset()
+        if st._sandbox is not None:
+            st._sandbox.reset()
         return {"ok": True}
 
     @app.get("/api/files")
-    def files():
+    def files(run: str):
+        run_dir = run_dir_of(run)
         out = []
         for p in sorted(run_dir.rglob("*")):
             if len(out) >= 500:
@@ -251,13 +321,23 @@ def create_app(run_dir: Path, model: str) -> FastAPI:
                 out.append(str(p.relative_to(run_dir)))
         return {"files": out}
 
-    @app.get("/plots/{kind}/{name}")
-    def plot(kind: str, name: str):
+    @app.get("/plots/{run}/{kind}/{name}")
+    def plot(run: str, kind: str, name: str):
+        run_dir = run_dir_of(run)
         if kind not in ("report", "chat") or not SAFE_NAME.match(name):
             raise HTTPException(404)
         base = run_dir / "epidemic_analysis" / ("chat" if kind == "chat" else "")
         path = (base / name).resolve()
-        if not path.is_relative_to(run_dir.resolve()) or not path.exists():
+        if not path.is_relative_to(run_dir) or not path.exists():
+            raise HTTPException(404)
+        return FileResponse(path)
+
+    @app.get("/compare_plots/{name}")
+    def compare_plot(name: str):
+        if not SAFE_NAME.match(name):
+            raise HTTPException(404)
+        path = logs_root / "_comparisons" / name
+        if not path.exists():
             raise HTTPException(404)
         return FileResponse(path)
 
@@ -269,18 +349,24 @@ def main():
     import uvicorn
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("run_dir", type=Path, help="logs/<exp_name>")
+    parser.add_argument("path", type=Path, nargs="?",
+                        default=HERE.parents[2] / "logs",
+                        help="logs root, or one run dir to open first")
     parser.add_argument("--model", default=agent.DEFAULT_MODEL)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8010)
     args = parser.parse_args()
-    run_dir = args.run_dir.resolve()
-    if not (run_dir / "world_state.jsonl").exists():
-        sys.exit(f"{run_dir} does not look like a run directory (no world_state.jsonl)")
+    target = args.path.resolve()
+    if (target / "world_state.jsonl").exists():
+        logs_root, initial = target.parent, target.name
+    elif target.is_dir():
+        logs_root, initial = target, None
+    else:
+        sys.exit(f"{target} is neither a logs root nor a run directory")
 
-    print(f"🩺 Ebola anthropologist → http://{args.host}:{args.port}  ({run_dir.name})")
-    uvicorn.run(create_app(run_dir, args.model), host=args.host, port=args.port,
-                log_level="warning")
+    print(f"🩺 Ebola anthropologist → http://{args.host}:{args.port}  ({logs_root})")
+    uvicorn.run(create_app(logs_root, args.model, initial),
+                host=args.host, port=args.port, log_level="warning")
 
 
 if __name__ == "__main__":

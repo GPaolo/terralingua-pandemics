@@ -12,14 +12,24 @@ epidemic-specific.)
 ## `dashboard.py` — the main interface
 
 ```
-python scenarios/ebola_simulation/anthropologist/dashboard.py logs/<exp_name>
+python scenarios/ebola_simulation/anthropologist/dashboard.py            # serves logs/
+python scenarios/ebola_simulation/anthropologist/dashboard.py logs/<exp> # opens one run first
 ```
 
-Serves http://127.0.0.1:8010: the report's metric tiles and plots on the left
-(with a "Regenerate report" button), the anthropologist chat on the right.
-Chat needs `ANTHROPIC_API_KEY` or a `.env` (`--model` defaults to
-`claude-opus-5`, with server-side fallback to `claude-opus-4-8` on refusals);
-the metrics/plots panes work without credentials.
+Serves http://127.0.0.1:8010: every run under the logs root is in the header
+selector; the report's metric tiles and plots for the active run on the left
+(with a "Regenerate report" button), the anthropologist chat on the right —
+each run keeps its own chat session. Chat needs `ANTHROPIC_API_KEY` or a
+`.env` (`--model` defaults to `claude-opus-5`, with server-side fallback to
+`claude-opus-4-8` on refusals); the metrics/plots panes work without
+credentials.
+
+**Compare runs…** (also `#compare` in the URL) selects several runs and either
+**averages them as seeds** of one configuration (mean line, min–max band) or
+overlays them **side by side** (≤ 6 runs, one categorical color each), with a
+summary table (attack rate, R0, peak, deaths, PPE protection per run). Same
+thing from the CLI: `python …/compare.py logs/run_a logs/run_b --mode
+average|sidebyside`; outputs land in `<logs root>/_comparisons/`.
 
 The model navigates the logs with Claude Code-style read-only tools
 (`list_files`, `read_file`, `grep_files` — host-side, no code execution, no
@@ -96,6 +106,7 @@ python scenarios/ebola_simulation/anthropologist/chat.py logs/<exp_name>
   `(metrics, series, infections, exposures)`.
 - `agent.py` — system prompt (log-format traps included), the five tools,
   turn loop shared by dashboard and chat.
+- `compare.py` — cross-run averaging and side-by-side comparison plots.
 - `filetools.py` — the read-only navigation tools (scope confinement,
   input_prompt stripping, truncation).
 - `sandbox.py` — the guarded executor described above.

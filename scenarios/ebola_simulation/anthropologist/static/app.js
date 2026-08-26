@@ -12,11 +12,43 @@ async function api(path, body) {
   return res.json();
 }
 
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 const fmt = {
   pct: (v) => (v == null ? "—" : `${Math.round(v * 100)}%`),
   num: (v) => (v == null ? "—" : `${Math.round(v * 100) / 100}`),
   mult: (v) => (v == null ? "—" : `×${Math.round(v * 100) / 100}`),
 };
+
+let activeRun = null;
+let allRuns = [];
+
+// ------------------------------------------------------------------ run list
+
+async function loadRuns() {
+  const r = await api("/api/runs");
+  allRuns = r.runs;
+  activeRun = r.initial;
+  $("runsel").innerHTML = allRuns.map((n) =>
+    `<option value="${escapeHtml(n)}" ${n === activeRun ? "selected" : ""}>${escapeHtml(n)}</option>`
+  ).join("");
+  $("runchecks").innerHTML = allRuns.map((n) =>
+    `<label><input type="checkbox" value="${escapeHtml(n)}" ${n === activeRun ? "checked" : ""} /> ${escapeHtml(n)}</label>`
+  ).join("");
+}
+
+$("runsel").addEventListener("change", (e) => {
+  activeRun = e.target.value;
+  lastRender = "";
+  seenDone.clear();
+  loadState();
+  loadFiles();
+  poll();
+});
+
+// ---------------------------------------------------------------- left pane
 
 function tile(value, label, sub = "") {
   return `<div class="tile"><div class="value">${value}</div>` +
@@ -24,11 +56,9 @@ function tile(value, label, sub = "") {
          (sub ? `<div class="sub">${sub}</div>` : "") + `</div>`;
 }
 
-// ---------------------------------------------------------------- left pane
-
 async function loadState() {
-  const s = await api("/api/state");
-  $("run").textContent = s.run;
+  if (!activeRun) return;
+  const s = await api(`/api/state?run=${encodeURIComponent(activeRun)}`);
   $("no-report").hidden = s.metrics !== null;
 
   if (s.metrics) {
@@ -57,15 +87,51 @@ async function loadState() {
 $("regen").addEventListener("click", async () => {
   $("regen").disabled = true;
   $("regen").textContent = "Computing…";
-  try { await api("/api/report", {}); await loadState(); }
+  try { await api("/api/report", { run: activeRun }); await loadState(); }
   catch (e) { alert(e.message); }
   $("regen").disabled = false;
   $("regen").textContent = "Regenerate report";
 });
 
+// ------------------------------------------------------------------- compare
+
+$("cmp-toggle").addEventListener("click", () => {
+  $("compare").hidden = !$("compare").hidden;
+});
+
+$("docompare").addEventListener("click", async () => {
+  const runs = [...document.querySelectorAll("#runchecks input:checked")]
+    .map((c) => c.value);
+  const mode = document.querySelector("input[name=cmode]:checked").value;
+  $("docompare").disabled = true;
+  $("docompare").textContent = "Computing…";
+  try {
+    const r = await api("/api/compare", { runs, mode });
+    const bust = Date.now();
+    const head = ["run", "steps", "infections", "attack", "peak sick", "R0",
+                  "mean R", "deaths", "PPE prot."];
+    const rows = r.table.map((row) =>
+      `<tr><td>${escapeHtml(row.run)}</td><td>${row.steps}</td>` +
+      `<td>${row.infections}</td><td>${fmt.pct(row.attack_rate)}</td>` +
+      `<td>${row.peak_sick}</td><td>${fmt.num(row.r0)}</td>` +
+      `<td>${fmt.num(row.mean_r)}</td><td>${row.deaths}</td>` +
+      `<td>${fmt.mult(row.ppe_protection)}</td></tr>`).join("");
+    $("cmp-out").innerHTML =
+      `<table class="cmp-table"><thead><tr>` +
+      head.map((h) => `<th>${h}</th>`).join("") +
+      `</tr></thead><tbody>${rows}</tbody></table>` +
+      `<div class="plots">` +
+      r.plots.map((u) => `<figure><img src="${u}?v=${bust}" /></figure>`).join("") +
+      `</div>`;
+  } catch (e) { alert(e.message); }
+  $("docompare").disabled = false;
+  $("docompare").textContent = "Compare";
+});
+
 // ---------------------------------------------------------------- chat pane
 
 let lastRender = "";
+const seenDone = new Set();
 
 function codeCard(ev, autoRun) {
   const chip = `<span class="chip ${ev.status}">${ev.status}</span>`;
@@ -80,12 +146,9 @@ function codeCard(ev, autoRun) {
          `<pre>${escapeHtml(ev.code)}</pre>${approve}${out}</div>`;
 }
 
-function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
 window.decide = async (id, approved) => {
-  try { await api("/api/approve", { id, approved }); } catch (e) { /* raced */ }
+  try { await api("/api/approve", { run: activeRun, id, approved }); }
+  catch (e) { /* raced */ }
   poll();
 };
 
@@ -119,10 +182,10 @@ function render(data) {
   if (donePlots) { loadState(); loadFiles(); } // a turn may add files/plots
 }
 
-const seenDone = new Set();
-
 async function poll() {
-  try { render(await api("/api/events")); } catch (e) { /* server restarting */ }
+  if (!activeRun) return;
+  try { render(await api(`/api/events?run=${encodeURIComponent(activeRun)}`)); }
+  catch (e) { /* server restarting */ }
 }
 
 $("ask").addEventListener("submit", async (e) => {
@@ -130,19 +193,22 @@ $("ask").addEventListener("submit", async (e) => {
   const q = $("question").value.trim();
   if (!q) return;
   $("question").value = "";
-  try { await api("/api/chat", { question: q }); } catch (err) { alert(err.message); }
+  try { await api("/api/chat", { run: activeRun, question: q }); }
+  catch (err) { alert(err.message); }
   poll();
 });
 
 $("autorun").addEventListener("change", async (e) => {
-  await api("/api/autorun", { enabled: e.target.checked });
+  await api("/api/autorun", { run: activeRun, enabled: e.target.checked });
 });
 
-$("stop").addEventListener("click", () => api("/api/stop", {}).then(poll));
+$("stop").addEventListener("click", () =>
+  api("/api/stop", { run: activeRun }).then(poll));
 
 $("reset").addEventListener("click", async () => {
   if (!confirm("Clear the conversation and the sandbox session?")) return;
-  try { await api("/api/reset", {}); } catch (e) { alert(e.message); return; }
+  try { await api("/api/reset", { run: activeRun }); }
+  catch (e) { alert(e.message); return; }
   lastRender = "";
   seenDone.clear();
   poll();
@@ -152,7 +218,10 @@ $("reset").addEventListener("click", async () => {
 
 let fileList = [];
 async function loadFiles() {
-  try { fileList = (await api("/api/files")).files; } catch (e) { /* offline */ }
+  if (!activeRun) return;
+  try {
+    fileList = (await api(`/api/files?run=${encodeURIComponent(activeRun)}`)).files;
+  } catch (e) { /* offline */ }
 }
 
 const qInput = $("question"), mbox = $("mentions");
@@ -200,7 +269,13 @@ mbox.addEventListener("mousedown", (e) => {
   if (f) { e.preventDefault(); insertMention(f); }
 });
 
-loadState();
-loadFiles();
-poll();
-setInterval(poll, 900);
+// --------------------------------------------------------------------- init
+
+(async function init() {
+  await loadRuns();
+  if (location.hash === "#compare") $("compare").hidden = false;
+  loadState();
+  loadFiles();
+  poll();
+  setInterval(poll, 900);
+})();
