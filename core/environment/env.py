@@ -92,6 +92,8 @@ class OpenGridWorld:
         viral_infection_probability: float = 0.3,
         viral_energy_multiplier: float = 2.0,
         ppe_protection: float = 0.1,
+        burials: bool = False,
+        burial_infection_multiplier: float = 2.0,
         max_message_size: int = -1,  # tokens per message; -1: unlimited
         max_text_artifact_size: int = MAX_TEXT_ARTIFACT_SIZE,  # tokens per text artifact
         init_artifacts: str | Path | List[dict] | None = None,
@@ -131,6 +133,11 @@ class OpenGridWorld:
         self.viral_energy_multiplier = viral_energy_multiplier
         # Multiplier on the contraction probability of an agent carrying PPE
         self.ppe_protection = ppe_protection
+        # Beings next to remains (a ground viral artifact) may bury them,
+        # removing the artifact at burial_infection_multiplier x the usual
+        # contact risk of catching the infection themselves
+        self.burials = burials
+        self.burial_infection_multiplier = burial_infection_multiplier
         self.max_message_size = max_message_size
         self.max_text_artifact_size = max_text_artifact_size
         self._token_encoder = None  # lazy: only needed when messages are capped
@@ -685,12 +692,16 @@ class OpenGridWorld:
                         f"Your message was cut off at {self.max_message_size} tokens.",
                     )
 
-            # Intercept before the availability gate below: it withholds "take"
+            # Intercept before the availability gate below: it withholds these
             # from a sick agent, so the gate would already have coerced this to
             # a silent stay and the agent would never learn why.
-            if sick and action_name == "take":
+            if sick and action_name in ("take", "bury"):
                 self._note_outcome(
-                    infos, agent, "You are too sick to take energy from another being."
+                    infos,
+                    agent,
+                    "You are too sick to take energy from another being."
+                    if action_name == "take"
+                    else "You are too sick to bury anything.",
                 )
                 rewards[agent] -= 1
                 action_name = "move"
@@ -734,6 +745,59 @@ class OpenGridWorld:
 
             # Handle Energy exchange
             # ---------------------------
+            elif action_name == "bury":
+                art_name = str(action_params.get("name", ""))
+                artifact = self.artifacts.get(art_name)
+                if not isinstance(artifact, ViralArtifact) or art_name not in (
+                    self._ground_viral_nearby(agent)
+                ):
+                    self._note_outcome(
+                        infos,
+                        agent,
+                        f"There are no remains named '{art_name}' within reach to bury.",
+                    )
+                    rewards[agent] -= 1
+                else:
+                    # Handling the remains is one extra exposure at scaled risk,
+                    # rolled before removal so the copy has a source; PPE still
+                    # protects the digger.
+                    if self.rng is None:
+                        self.rng = np.random.default_rng()
+                    risk = (
+                        self.viral_infection_probability
+                        * self.burial_infection_multiplier
+                        * self._infection_protection(agent)
+                    )
+                    caught = None
+                    if self.rng.random() < risk:
+                        caught = self.infect_agent(
+                            agent_tag=agent, source_artifact=artifact
+                        )
+                    pos = None
+                    for cell in list(self.artifacts_map):
+                        if art_name in self.artifacts_map[cell]:
+                            pos = cell
+                            self.artifacts_map[cell].discard(art_name)
+                            break
+                    self.artifacts.pop(art_name, None)
+                    artifact.deletion_time = self.step_count
+                    self.expired_artifacts.append(artifact)
+                    self._note_outcome(infos, agent, f"You buried {art_name}.")
+                    # Say nothing while a caught infection incubates
+                    if caught is not None and self.artifacts[caught].symptomatic:
+                        infos.setdefault(agent, {})["Infection"] = (
+                            f"Artifact {caught} appeared in your inventory."
+                        )
+                    self.logger.log(
+                        time=self.step_count,
+                        event_type=Event.BURIAL,
+                        agent_tag=agent,
+                        agent_name=self.agent_names[agent],
+                        artifact=artifact.serialize(),
+                        pose=pos,
+                        infected=caught is not None,
+                    )
+
             elif action_name in ("give", "take"):
                 nearby_agents = self._get_nearby_agents(agent)
                 # must be in vision radius
@@ -1804,6 +1868,18 @@ class OpenGridWorld:
         artifact = self.artifacts.get(art_name)
         return isinstance(artifact, ViralArtifact) and not artifact.symptomatic
 
+    def _ground_viral_nearby(self, agent_tag: str) -> List[str]:
+        """Names of viral artifacts on the ground within reach (own cell + 8 neighbours)."""
+        x, y = self.agent_pos[agent_tag]
+        names = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                cell = self.wrap_xy(x + dx, y + dy)
+                for n in self.artifacts_map.get(cell, ()):
+                    if isinstance(self.artifacts.get(n), ViralArtifact):
+                        names.append(n)
+        return names
+
     def _heal_at_health_spots(self, infos: dict):
         """Cures infected agents at staffed health spots.
 
@@ -2222,6 +2298,12 @@ class OpenGridWorld:
             # A sick agent is too weak to steal, but can still give energy away
             if not sick:
                 available_actions["take"] = deepcopy(ACTION_TEXT["take"])
+        # ---------------------------
+
+        # Burials: remains within reach, and the digger must be well
+        # ---------------------------
+        if self.burials and not sick and self._ground_viral_nearby(agent_tag):
+            available_actions["bury"] = deepcopy(ACTION_TEXT["bury"])
         # ---------------------------
 
         # Artifacts

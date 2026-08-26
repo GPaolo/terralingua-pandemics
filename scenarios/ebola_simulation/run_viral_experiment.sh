@@ -12,6 +12,7 @@ python main.py \
     --max_ts                100  \
     --max_parallel_workers 20 \
     --no-save_video \
+    --verbose               1 `# terminal chatter: 0 warnings only, 1 key events, 2 per-step debug` \
     \
     `# Agent LLM` \
     --model                 "claude-haiku-4-5" \
@@ -60,6 +61,9 @@ python main.py \
     `# 25x25 grid with 15 beings that is 0.5 x 0.19 x 30 ~= 2.9. Measure the realized R0 with:` \
     `#   python analysis_scripts/compute_r0.py logs/<exp_name>` \
     `# then rescale: new_probability = probability x (2.5 / measured_R0).` \
+    `# Full epidemic report (plots, PPE efficiency) and interactive analyst:` \
+    `#   python scenarios/ebola_simulation/anthropologist/report.py logs/<exp_name>` \
+    `#   python scenarios/ebola_simulation/anthropologist/dashboard.py logs/<exp_name>` \
     `# With one index case an outbreak fizzles out by chance roughly 1 run in 3 — expected,` \
     `# not a bug. Widen the grid or raise the probability if you need every run to take off.` \
     `#` \
@@ -76,4 +80,7 @@ python main.py \
     --viral_dropped_lifespan 10 `# steps a viral artifact dropped at its host's death survives on the map, still spreading (-1: forever)` \
     --viral_infection_radius 1 `# max distance in cells at which a viral artifact can spread (1 = contact: the 8 adjacent cells)` \
     --viral_infection_probability 0.5 `# per-step, per-neighbor transmission probability. Calibrate this to hit the target R0` \
-    --viral_energy_multiplier 5.0 `# energy drain multiplier once symptomatic (K). Incubating hosts pay the normal 1/step`
+    --viral_energy_multiplier 5.0 `# energy drain multiplier once symptomatic (K). Incubating hosts pay the normal 1/step` \
+    --ppe_protection        0.1 `# multiplier on the infection probability of a being carrying PPE (0: immune, 1: no protection)` \
+    --burials `# beings next to remains (a dropped viral artifact) can bury them, removing the artifact from the ground` \
+    --burial_infection_multiplier 1.5 `# burying scales the burier's infection probability by this factor for that exposure (PPE still applies)`

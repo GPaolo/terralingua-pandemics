@@ -14,6 +14,13 @@ ACTION_TEXT = {
             "amount": "Integer amount of energy to transfer (1 up to your current energy).",
         },
     },
+    "bury": {
+        "description": "Bury remains lying on the ground next to you, removing "
+        "them from the world. Handling remains is risky: you may catch the sickness.",
+        "params": {
+            "name": "Name of the remains artifact to bury (must be on your cell or an adjacent one).",
+        },
+    },
     "take": {
         "description": "Steal energy from another nearby being.",
         "params": {

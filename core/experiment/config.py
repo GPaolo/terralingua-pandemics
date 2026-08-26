@@ -98,6 +98,20 @@ class EnvConfig:
     artifact_creation_cost: int = field(
         default=0, metadata={"help": "Cost to create artifact"}
     )
+    burials: bool = field(
+        default=False,
+        metadata={
+            "help": "Beings next to remains (a ground viral artifact) get a "
+            "'bury' action that removes the artifact from the world"
+        },
+    )
+    burial_infection_multiplier: float = field(
+        default=2.0,
+        metadata={
+            "help": "Burying scales the burier's viral_infection_probability "
+            "by this factor for that one exposure (PPE still applies)"
+        },
+    )
     dead_agent_food: str = field(
         default="single",
         metadata={
@@ -249,6 +263,9 @@ class EnvConfig:
         )
         assert 0.0 <= self.ppe_protection <= 1.0, (
             "ppe_protection must be in [0, 1]"
+        )
+        assert self.burial_infection_multiplier >= 0, (
+            "burial_infection_multiplier cannot be negative"
         )
         assert self.verbose in (0, 1, 2), "verbose must be 0, 1 or 2"
         assert self.max_text_artifact_size > 0, (
