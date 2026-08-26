@@ -23,12 +23,22 @@ def test_load_personas():
         )
         personas = load_personas(str(path))
         assert personas == [
-            {"persona": "You are a cautious doctor.", "name": None},
-            {"persona": "You are a cautious doctor.", "name": None},
-            {"persona": "You are a reckless explorer.", "name": None},
-            {"persona": "You are a skeptic.", "name": "Thomas"},
+            {"persona": "You are a cautious doctor.", "name": None, "role": None},
+            {"persona": "You are a cautious doctor.", "name": None, "role": None},
+            {"persona": "You are a reckless explorer.", "name": None, "role": None},
+            {"persona": "You are a skeptic.", "name": "Thomas", "role": None},
         ], personas
         print("PASS: personas file expands counts in order")
+
+        path.write_text(
+            json.dumps(
+                [{"persona": "You are a doctor.", "name": "Miriam",
+                  "role": "health_worker", "count": 2}]
+            )
+        )
+        expanded = load_personas(str(path))
+        assert all(p["role"] == "health_worker" for p in expanded), expanded
+        print("PASS: a role is shared by the whole count group")
 
         path.write_text(
             json.dumps([{"persona": "You are a doctor.", "name": "Miriam", "count": 3}])

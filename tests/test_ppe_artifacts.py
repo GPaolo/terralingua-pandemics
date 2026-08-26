@@ -143,10 +143,28 @@ def test_world_log_emits_n_ppe():
 
     lines = [json.loads(line) for line in open(tmp / "world_state.jsonl")]
     meta, frame = lines[0], lines[1]
-    assert meta["agent_fields"][-1] == "n_ppe", meta["agent_fields"]
+    assert "n_ppe" in meta["agent_fields"], meta["agent_fields"]
     idx = meta["agent_fields"].index("n_ppe")
     assert frame["agents"]["a"][idx] == 1, frame["agents"]["a"]
     print("PASS: world_state.jsonl carries n_ppe (schema 3)")
+
+
+def test_seeding_by_role():
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        init_artifacts=[{"name": "mask", "type": "ppe", "role": "health_worker"}],
+    )
+    env.add_agent(agent_tag="a", agent_name="Miriam", agent_type="text",
+                  agent_role="health_worker")
+    env.add_agent(agent_tag="b", agent_name="Sam", agent_type="text",
+                  agent_role="health_worker")
+    env.add_agent(agent_tag="c", agent_name="Eve", agent_type="text")
+    env.restart_env(agent_poses={"a": (5, 5), "b": (5, 8), "c": (5, 11)})
+
+    assert env._count_ppe("a") == 1 and env._count_ppe("b") == 1
+    assert env._count_ppe("c") == 0, "roleless beings get nothing"
+    print("PASS: role-targeted seeding reaches every being with the role")
 
 
 def test_agents_cannot_create_ppe():
@@ -214,6 +232,7 @@ if __name__ == "__main__":
     test_protection_does_not_stack()
     test_carrier_perceives_ppe()
     test_world_log_emits_n_ppe()
+    test_seeding_by_role()
     test_agents_cannot_create_ppe()
     test_take_affordance_and_death_drop()
     test_checkpoint_roundtrip()

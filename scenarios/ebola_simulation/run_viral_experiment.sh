@@ -80,7 +80,8 @@ python main.py \
     --viral_dropped_lifespan 10 `# steps a viral artifact dropped at its host's death survives on the map, still spreading (-1: forever)` \
     --viral_infection_radius 1 `# max distance in cells at which a viral artifact can spread (1 = contact: the 8 adjacent cells)` \
     --viral_infection_probability 0.5 `# per-step, per-neighbor transmission probability. Calibrate this to hit the target R0` \
-    --viral_energy_multiplier 5.0 `# energy drain multiplier once symptomatic (K). Incubating hosts pay the normal 1/step` \
+    --viral_energy_multiplier 1.5 `# energy drain multiplier once symptomatic (K). Kept survivable so lethality is set by the roll below, not starvation` \
+    --viral_death_probability 0.048 `# hazard ramps 0 -> this over the 30 sick days; 1-prod(1-0.048*t/30) ~= 50% CFR (ebola-like)` \
     --ppe_protection        0.1 `# multiplier on the infection probability of a being carrying PPE (0: immune, 1: no protection)` \
     --burials `# beings next to remains (a dropped viral artifact) can bury them, removing the artifact from the ground` \
     --burial_infection_multiplier 1.5 `# burying scales the burier's infection probability by this factor for that exposure (PPE still applies)`

@@ -236,9 +236,9 @@ def test_recovery():
     env.step({})
     assert e_before - env.agent_energy["x"] == 1.0, "drain should be back to 1"
 
-    # Reinfection is possible after recovery
-    assert env.infect_agent(agent_tag="x") is not None
-    print("PASS: recovery after viral_lifespan and reinfection")
+    # Recovery grants immunity: no reinfection, ever
+    assert env.infect_agent(agent_tag="x") is None
+    print("PASS: recovery after viral_lifespan, and the recovered are immune")
 
 
 def test_outbreak():

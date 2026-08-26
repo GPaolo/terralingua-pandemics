@@ -157,6 +157,33 @@ def test_incubating_catch_stays_silent():
     print("PASS: an infection caught at a burial incubates silently")
 
 
+def test_corpse_presents_as_remains():
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(tmp, viral_death_probability=1.0, viral_infection_probability=0.0)
+    for tag, name in (("victim", "Amara"), ("digger", "b")):
+        env.add_agent(agent_tag=tag, agent_name=name, agent_type="text")
+    env.restart_env(agent_poses={"victim": (5, 5), "digger": (5, 6)})
+    env.infect_agent(agent_tag="victim")
+    env.step({t: {"action": "move", "params": {"direction": "stay"}} for t in list(env.agent_registry)})
+    assert "victim" not in env.agent_registry, "certain lethality should kill"
+
+    corpse = next(iter(env.artifacts_map[(5, 5)]))
+    assert env.artifacts[corpse].display_name == "remains_of_Amara"
+    obs = env._build_obs("digger")
+    cells = [v for vals in obs["observation"].values() for v in vals]
+    assert any("A(remains): remains_of_Amara" in c for c in cells), cells
+    assert not any("A(viral)" in c for c in cells), "the ground must not say virus"
+
+    # Bury it by the name the digger actually sees.
+    env.agent_avail_actions["digger"] = env._get_avail_actions("digger")
+    _, _, _, _, infos = env.step(
+        {"digger": {"action": "bury", "params": {"name": "remains_of_Amara"}}}
+    )
+    assert corpse not in env.artifacts
+    assert any("You buried remains_of_Amara" in str(v) for v in infos["digger"].values())
+    print("PASS: a corpse reads as remains, never as a virus, and buries by that name")
+
+
 def test_bogus_target():
     tmp = Path(tempfile.mkdtemp())
     env = make_env(tmp)
@@ -170,6 +197,7 @@ def test_bogus_target():
 
 
 if __name__ == "__main__":
+    test_corpse_presents_as_remains()
     test_action_gating()
     test_flag_off()
     test_burial_removes_remains()

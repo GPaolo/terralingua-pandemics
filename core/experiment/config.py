@@ -56,8 +56,9 @@ class AgentConfig:
         default=None,
         metadata={
             "help": "Path to a JSON file with personas: a list of {persona, name, "
-            "count} entries (or plain strings) assigned to the initial agents in "
-            "order; name renames the agent everywhere (tag is unchanged)"
+            "role, count} entries (or plain strings) assigned to the initial agents "
+            "in order; name renames the agent everywhere (tag is unchanged), role "
+            "gives it a distinct marker shape on the dashboard map"
         },
     )
     use_colors: bool = field(
@@ -145,8 +146,8 @@ class EnvConfig:
         metadata={
             "help": "Path to a JSON file with artifacts seeded by the environment: "
             "a list of {name, type, payload, pose, lifespan, step} entries "
-            "(type: 'text', 'ppe' or 'health_spot'; health spots also take "
-            "radius, heal_probability and operators)"
+            "(type: 'text', 'ppe' or 'health_center'; health centers also "
+            "take heal_probability and cover their cell plus the 8 around it)"
         },
     )
     init_human_agents: int = field(
@@ -188,6 +189,14 @@ class EnvConfig:
         default=20,
         metadata={
             "help": "Steps a viral artifact dropped at its host's death survives on the map (-1 = forever)"
+        },
+    )
+    viral_death_probability: float = field(
+        default=0.0,
+        metadata={
+            "help": "Death chance per symptomatic step at the END of the "
+            "infectious window; the hazard ramps linearly from 0 at symptom "
+            "onset (0 = only starvation kills)"
         },
     )
     viral_energy_multiplier: float = field(
@@ -266,6 +275,9 @@ class EnvConfig:
         )
         assert self.burial_infection_multiplier >= 0, (
             "burial_infection_multiplier cannot be negative"
+        )
+        assert 0.0 <= self.viral_death_probability <= 1.0, (
+            "viral_death_probability must be in [0, 1]"
         )
         assert self.verbose in (0, 1, 2), "verbose must be 0, 1 or 2"
         assert self.max_text_artifact_size > 0, (

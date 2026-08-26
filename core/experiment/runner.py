@@ -45,10 +45,11 @@ def load_personas(path: str | None) -> List[dict]:
     """Loads a personas JSON file and expands it into a per-agent list.
 
     The file is a list whose entries are either plain persona strings or
-    {"persona": str, "name": str, "count": int} dicts (name optional, count
-    defaults to 1). Returns one {"persona", "name"} dict per agent, in file
-    order; name is None when not given. With count > 1 the explicit name goes
-    to the first agent and the rest get unique Faker-generated names.
+    {"persona": str, "name": str, "role": str, "count": int} dicts (name and
+    role optional, count defaults to 1). Returns one {"persona", "name",
+    "role"} dict per agent, in file order; name/role are None when not given.
+    With count > 1 the explicit name goes to the first agent and the rest get
+    unique Faker-generated names; the role is shared by the whole group.
     """
     if not path:
         return []
@@ -68,7 +69,13 @@ def load_personas(path: str | None) -> List[dict]:
         name = entry.get("name")
         for i in range(count):
             expanded = name if i == 0 or not name else pool.pop()
-            personas.append({"persona": entry["persona"], "name": expanded})
+            personas.append(
+                {
+                    "persona": entry["persona"],
+                    "name": expanded,
+                    "role": entry.get("role"),
+                }
+            )
     return personas
 
 
@@ -151,6 +158,7 @@ class SimulationRunner:
             viral_infection_radius=self.params.env.viral_infection_radius,
             viral_infection_probability=self.params.env.viral_infection_probability,
             viral_energy_multiplier=self.params.env.viral_energy_multiplier,
+            viral_death_probability=self.params.env.viral_death_probability,
             ppe_protection=self.params.env.ppe_protection,
             burials=self.params.env.burials,
             burial_infection_multiplier=self.params.env.burial_infection_multiplier,
@@ -194,10 +202,11 @@ class SimulationRunner:
         name_pool = _draw_names(max(0, n_text - len(explicit)), explicit)
         for agent_tag, agent_type in init_agents.items():
             if agent_type == "text":
-                persona, agent_name = "", None
+                persona, agent_name, agent_role = "", None, None
                 if persona_idx < len(personas):
                     persona = personas[persona_idx]["persona"]
                     agent_name = personas[persona_idx]["name"]
+                    agent_role = personas[persona_idx].get("role")
                 persona_idx += 1
                 agent_name = agent_name or name_pool.pop()
                 self.agents[agent_tag] = LLMAgent(
@@ -217,6 +226,7 @@ class SimulationRunner:
                     agent_tag=agent_tag,
                     agent_name=agent_name,
                     agent_type=init_agents[agent_tag],
+                    agent_role=agent_role,
                 )
             elif agent_type == "human":
                 agent_name = input(f"Enter a name for human agent ({agent_tag}): ").strip()

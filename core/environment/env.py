@@ -18,7 +18,7 @@ from core.environment.artifact import (
     MAX_TEXT_ARTIFACT_SIZE,
     Artifact,
     ArtifactCreationError,
-    HealthSpotArtifact,
+    HealthCenterArtifact,
     PPEArtifact,
     TextArtifact,
     ViralArtifact,
@@ -91,6 +91,7 @@ class OpenGridWorld:
         viral_infection_radius: int = 1,
         viral_infection_probability: float = 0.3,
         viral_energy_multiplier: float = 2.0,
+        viral_death_probability: float = 0.0,
         ppe_protection: float = 0.1,
         burials: bool = False,
         burial_infection_multiplier: float = 2.0,
@@ -131,6 +132,8 @@ class OpenGridWorld:
         self.viral_infection_radius = viral_infection_radius
         self.viral_infection_probability = viral_infection_probability
         self.viral_energy_multiplier = viral_energy_multiplier
+        # Per-step chance that a symptomatic agent dies of the sickness
+        self.viral_death_probability = viral_death_probability
         # Multiplier on the contraction probability of an agent carrying PPE
         self.ppe_protection = ppe_protection
         # Beings next to remains (a ground viral artifact) may bury them,
@@ -195,6 +198,8 @@ class OpenGridWorld:
         self.artifacts_map: Dict[Tuple, Set[str]] = defaultdict(set)
         # {agent_tag: [artifact_names]}
         self.agent_inventories: Dict[str, Set[str]] = defaultdict(set)
+        # {agent_tag: infections cleared while alive (cure or natural expiry)}
+        self.agent_recoveries: Dict[str, int] = defaultdict(int)
         self.expired_artifacts: List[Artifact] = []
         # Total number of viral infections so far. Used to name infection copies uniquely.
         self.viral_infection_count = 0
@@ -209,6 +214,8 @@ class OpenGridWorld:
         self.agent_time: Dict[str, float] = {}
         self.agent_spawn: Dict[str, List[str]] = {}
         self.agent_names: Dict[str, str] = {}
+        # {agent_tag: persona role}, only for beings whose persona declares one
+        self.agent_roles: Dict[str, str] = {}
         self.agent_colors: Dict[str, str] = {}
 
         self.msg_raw: Dict[str, str | np.ndarray] = {}
@@ -238,6 +245,7 @@ class OpenGridWorld:
         agent_name: str,
         agent_type: str,
         position: tuple | None = None,
+        agent_role: str | None = None,
     ):
         """Register an external agent object before reset()."""
         if agent_type not in AGENT_INPUT_TYPE:
@@ -250,6 +258,8 @@ class OpenGridWorld:
             )
         self.agent_registry[agent_tag] = agent_type
         self.agent_names[agent_tag] = agent_name
+        if agent_role:
+            self.agent_roles[agent_tag] = agent_role
         self._place_agent(agent_tag, p=position)
         if self.verbose >= 2:
             print(
@@ -263,6 +273,7 @@ class OpenGridWorld:
                 position=self.agent_pos[agent_tag],
                 agent_name=self.agent_names[agent_tag],
                 agent_type=agent_type,
+                agent_role=agent_role,
             )
         avail_actions = self._get_avail_actions(agent_tag=agent_tag)
         observation = self._build_obs(agent_tag)
@@ -328,21 +339,22 @@ class OpenGridWorld:
                 protection=self.ppe_protection,
                 **({"payload": payload} if payload else {}),
             )
-        elif art_type == "health_spot":
+        elif art_type == "health_center":
             if to_inventory is not None:
-                return "Failed. A health spot is fixed to the map and cannot be carried."
+                return (
+                    "Failed. A health center is fixed to the map and cannot be carried."
+                )
             while art_name in self.artifacts:
                 art_name = f"{art_name}_1"
             params = artifact_params or {}
-            artifact = HealthSpotArtifact(
+            artifact = HealthCenterArtifact(
                 name=art_name,
                 pose=pose,
                 creator=creator,
                 lifespan=lifespan,
                 creation_time=self.step_count,
-                radius=params.get("radius", 2),
                 heal_probability=params.get("heal_probability", 0.2),
-                operators=params.get("operators"),
+                radius=params.get("radius", 1),
                 **({"payload": payload} if payload else {}),
             )
         else:
@@ -408,6 +420,9 @@ class OpenGridWorld:
         if source_artifact is not None:
             strain = source_artifact.strain
         if strain in self._hosted_viral_strains(agent_tag):
+            return None
+        # Recovery grants immunity: a healed agent never catches it again
+        if self.agent_recoveries.get(agent_tag, 0) > 0:
             return None
 
         # Unique name for the new infection
@@ -502,6 +517,7 @@ class OpenGridWorld:
         self.chat = {}
         self.food_count = []
         self.agent_inventories = defaultdict(set)
+        self.agent_recoveries = defaultdict(int)
         self.artifacts_map = defaultdict(set)
         self.artifacts = {}
         self.expired_artifacts = []
@@ -533,6 +549,7 @@ class OpenGridWorld:
                 agent_types=self.agent_registry,
                 food_count=len(self.food),
                 agent_names=self.agent_names,
+                agent_roles=self.agent_roles,
             )
 
         infos = {}
@@ -623,11 +640,24 @@ class OpenGridWorld:
                 n_viral,
                 n_sick_tag,
                 self._count_ppe(tag),
+                self.agent_recoveries.get(tag, 0),
             ]
 
-        # artifacts_map is a defaultdict, so a stale read can leave empty sets
+        # artifacts_map is a defaultdict, so a stale read can leave empty sets.
+        # Dropped viral artifacts go out under their remains display name and a
+        # "remains" kind, so the dashboard matches what the beings see.
+        def _kind(artifact):
+            if isinstance(artifact, ViralArtifact):
+                return "remains"
+            return getattr(artifact, "art_type", None) or "text"
+
         artifacts = (
-            (pos[0], pos[1], name)
+            (
+                pos[0],
+                pos[1],
+                getattr(self.artifacts.get(name), "display_name", None) or name,
+                _kind(self.artifacts.get(name)),
+            )
             for pos, names in self.artifacts_map.items()
             for name in names
         )
@@ -683,9 +713,7 @@ class OpenGridWorld:
                     self._token_encoder = tiktoken.get_encoding("cl100k_base")
                 toks = self._token_encoder.encode(str(message))
                 if len(toks) > self.max_message_size:
-                    message = self._token_encoder.decode(
-                        toks[: self.max_message_size]
-                    )
+                    message = self._token_encoder.decode(toks[: self.max_message_size])
                     self._note_outcome(
                         infos,
                         agent,
@@ -746,15 +774,24 @@ class OpenGridWorld:
             # Handle Energy exchange
             # ---------------------------
             elif action_name == "bury":
-                art_name = str(action_params.get("name", ""))
-                artifact = self.artifacts.get(art_name)
-                if not isinstance(artifact, ViralArtifact) or art_name not in (
-                    self._ground_viral_nearby(agent)
-                ):
+                ref = str(action_params.get("name", ""))
+                # Remains present under their display name; accept either it
+                # or the internal artifact name.
+                art_name = next(
+                    (
+                        n
+                        for n in self._ground_viral_nearby(agent)
+                        if n == ref
+                        or getattr(self.artifacts.get(n), "display_name", None) == ref
+                    ),
+                    None,
+                )
+                artifact = self.artifacts.get(art_name) if art_name else None
+                if not isinstance(artifact, ViralArtifact):
                     self._note_outcome(
                         infos,
                         agent,
-                        f"There are no remains named '{art_name}' within reach to bury.",
+                        f"There are no remains named '{ref}' within reach to bury.",
                     )
                     rewards[agent] -= 1
                 else:
@@ -782,7 +819,11 @@ class OpenGridWorld:
                     self.artifacts.pop(art_name, None)
                     artifact.deletion_time = self.step_count
                     self.expired_artifacts.append(artifact)
-                    self._note_outcome(infos, agent, f"You buried {art_name}.")
+                    self._note_outcome(
+                        infos,
+                        agent,
+                        f"You buried {artifact.display_name or art_name}.",
+                    )
                     # Say nothing while a caught infection incubates
                     if caught is not None and self.artifacts[caught].symptomatic:
                         infos.setdefault(agent, {})["Infection"] = (
@@ -1311,6 +1352,16 @@ class OpenGridWorld:
                     artifact = self.artifacts.pop(art_name)
                     artifact.deletion_time = self.step_count
                     self.expired_artifacts.append(artifact)
+                    # An infection running out its lifespan is a recovery. Say
+                    # so, or the agent keeps believing it cannot move: it was
+                    # told every sick step that it was frozen.
+                    if isinstance(artifact, ViralArtifact):
+                        self.agent_recoveries[agent_tag] += 1
+                        if artifact.symptomatic:
+                            infos.setdefault(agent_tag, {})["Health"] = (
+                                "You have recovered from the sickness. Your "
+                                "strength is back: you can move and eat again."
+                            )
                     self.logger.log(
                         time=self.step_count,
                         event_type=Event.ARTIFACT_REMOVED,
@@ -1330,7 +1381,7 @@ class OpenGridWorld:
         # ---------------------------
         # Healing first: an infection caught this step gets no instant cure.
         if not self.inert_artifacts:
-            self._heal_at_health_spots(infos)
+            self._heal_at_health_centers(infos)
             self._spread_viral_artifacts(infos)
         self._seed_viral_outbreak(infos)
         # ---------------------------
@@ -1358,13 +1409,24 @@ class OpenGridWorld:
         # They leave behind food in their position.
         # They are removed from the environment and their position.
         # We store their last observation so we can return it.
+        # Each symptomatic step is also one lethality roll, at a hazard that
+        # ramps with how long the agent has been sick (_death_hazard).
+        succumbed = set()
+        if self.viral_death_probability > 0 and not self.inert_artifacts:
+            if self.rng is None:
+                self.rng = np.random.default_rng()
+            succumbed = {
+                a
+                for a in self.agent_registry
+                if self.rng.random() < self._death_hazard(a)
+            }
         dead = {
             a: self._build_obs(a)
             for a in self.agent_registry
-            if self.agent_energy[a] <= 0 or self.agent_time[a] <= 0
+            if self.agent_energy[a] <= 0 or self.agent_time[a] <= 0 or a in succumbed
         }
         for a in dead:
-            self._kill(a)
+            self._kill(a, reason="sickness" if a in succumbed else None)
             done_dict[a] = True
             rewards[a] -= 100
 
@@ -1682,24 +1744,30 @@ class OpenGridWorld:
         for _ in range(n_new_food):
             self._respawn_food_one()
 
-    def _kill(self, agent):
+    def _kill(self, agent, reason=None):
         """
         Remove an agent from the environment.
         Dead agents leave behind food in their position.
         """
         announcement = f"☠️ Agent {self.agent_names[agent]}({agent}) died "
-        if self.agent_time[agent] <= 0:
+        if reason == "sickness":
+            announcement += "of the sickness."
+        elif self.agent_time[agent] <= 0:
             announcement += "of old age."
             reason = "old age"
         elif self.agent_energy[agent] <= 0:
             announcement += "of hunger."
             reason = "hunger"
+        else:
+            reason = reason or "unknown"
+            announcement += f"({reason})."
         if self.verbose >= 1:
             print(announcement)
         self.agent_registry.pop(agent, None)
         energy = self.agent_energy.pop(agent, 0)
         self.agent_time.pop(agent, None)
         self.msg_raw.pop(agent, None)
+        self.agent_recoveries.pop(agent, None)
         pos = self.agent_pos.pop(agent, None)
         if pos is not None:
             # Artifacts are dropped at agent's death position
@@ -1721,6 +1789,9 @@ class OpenGridWorld:
                             if self.viral_dropped_lifespan == -1
                             else self.viral_dropped_lifespan
                         )
+                        # Present as the corpse it is; the internal name stays
+                        # so transmission chains keyed on it survive.
+                        artifact.display_name = f"remains_of_{self.agent_names[agent]}"
                     if art_name not in self.artifacts_map[pos]:
                         self.artifacts_map[pos].add(art_name)
                     else:
@@ -1833,7 +1904,7 @@ class OpenGridWorld:
                     if not self.inert_artifacts:
                         for art_name in self.artifacts_map[(gx, gy)]:
                             observation[rel_pos].append(
-                                f"A({self.artifacts[art_name].art_type}): {self.artifacts[art_name].name}"
+                                self._artifact_label(art_name)
                             )
                 # CELLS OUTSIDE OF MAP
                 else:
@@ -1868,6 +1939,18 @@ class OpenGridWorld:
         artifact = self.artifacts.get(art_name)
         return isinstance(artifact, ViralArtifact) and not artifact.symptomatic
 
+    def _artifact_label(self, art_name: str) -> str:
+        """How an artifact reads in an observation.
+
+        A viral artifact dropped at its host's death presents as that
+        being's remains, not as a labelled virus.
+        """
+        artifact = self.artifacts[art_name]
+        display = getattr(artifact, "display_name", None)
+        if display:
+            return f"A(remains): {display}"
+        return f"A({artifact.art_type}): {artifact.name}"
+
     def _ground_viral_nearby(self, agent_tag: str) -> List[str]:
         """Names of viral artifacts on the ground within reach (own cell + 8 neighbours)."""
         x, y = self.agent_pos[agent_tag]
@@ -1880,46 +1963,44 @@ class OpenGridWorld:
                         names.append(n)
         return names
 
-    def _heal_at_health_spots(self, infos: dict):
-        """Cures infected agents at staffed health spots.
+    def _heal_at_health_centers(self, infos: dict):
+        """Cures infected agents inside health centers.
 
-        A spot is staffed while one of its operators (any agent, if the list
-        is empty) is within its radius. Each infected agent within the radius
-        then has heal_probability per step of losing every hosted viral
-        artifact. Curing a still-incubating infection says nothing: the host
-        never knew it was carrying anything.
+        A center is always active within its radius (default 1: its cell plus
+        the 8 around it). Each infected agent in the area has heal_probability
+        per step of losing every hosted viral artifact. Curing a
+        still-incubating infection says nothing: the host never knew it was
+        carrying anything.
         """
-        spots = [
-            a for a in self.artifacts.values() if isinstance(a, HealthSpotArtifact)
+        centers = [
+            a for a in self.artifacts.values() if isinstance(a, HealthCenterArtifact)
         ]
-        if not spots or not self.agent_registry:
+        if not centers or not self.agent_registry:
             return
         if self.rng is None:
             self.rng = np.random.default_rng()
-        for spot in spots:
-            if spot.operators:
-                staff = [self._resolve_agent_ref(ref) for ref in spot.operators]
-                staff = [t for t in staff if t is not None]
-            else:
-                staff = list(self.agent_registry)
-            if not any(
-                self._toroidal_distance(spot.pose, self.agent_pos[t]) <= spot.radius
-                for t in staff
-                if t in self.agent_pos
-            ):
-                continue
+        for center in centers:
             for tag in list(self.agent_registry):
-                if self._toroidal_distance(spot.pose, self.agent_pos[tag]) > spot.radius:
+                if (
+                    self._toroidal_distance(center.pose, self.agent_pos[tag])
+                    > center.radius
+                ):
                     continue
+                # Everyone in the area is told what the place is, not only
+                # those standing on its cell.
+                infos.setdefault(tag, {}).setdefault("Nearby facilities", []).append(
+                    center.passive_effect(timestamp=self.step_count, agent_name=tag)
+                )
                 hosted = [
                     n
                     for n in self.agent_inventories[tag]
                     if isinstance(self.artifacts.get(n), ViralArtifact)
                 ]
-                if not hosted or self.rng.random() >= spot.heal_probability:
+                if not hosted or self.rng.random() >= center.heal_probability:
                     continue
                 was_sick = any(self.artifacts[n].symptomatic for n in hosted)
-                spot.users[tag].add(self.step_count)
+                center.users[tag].add(self.step_count)
+                self.agent_recoveries[tag] += len(hosted)
                 for n in hosted:
                     artifact = self.artifacts.pop(n)
                     artifact.deletion_time = self.step_count
@@ -1931,16 +2012,38 @@ class OpenGridWorld:
                             event_type=Event.VIRAL_HEALED,
                             agent_tag=tag,
                             agent_name=self.agent_names[tag],
-                            spot=spot.name,
+                            spot=center.name,
                             artifact=artifact.serialize(),
                         )
                 if was_sick:
                     infos.setdefault(tag, {})["Health"] = (
-                        f"You have been treated at {spot.name} and recovered "
+                        f"You have been treated at {center.name} and recovered "
                         "from the sickness."
                     )
                     if self.verbose >= 1:
-                        print(f"⚕️ {self.agent_names[tag]}({tag}) healed at {spot.name} ⚕️")
+                        print(
+                            f"⚕️ {self.agent_names[tag]}({tag}) healed at {center.name} ⚕️"
+                        )
+
+    def _death_hazard(self, agent_tag: str) -> float:
+        """Per-step chance this agent dies of the sickness.
+
+        Zero at symptom onset, ramping linearly to viral_death_probability at
+        the end of the infectious window (constant at the maximum when
+        viral_lifespan is -1, since there is no window to ramp over).
+        """
+        frac = 0.0
+        for name in self.agent_inventories[agent_tag]:
+            artifact = self.artifacts.get(name)
+            if not isinstance(artifact, ViralArtifact) or not artifact.symptomatic:
+                continue
+            if artifact.lifespan in (np.inf, -1) or artifact.remaining_time == np.inf:
+                frac = 1.0
+            else:
+                frac = max(
+                    frac, 1.0 - max(artifact.remaining_time, 0) / artifact.lifespan
+                )
+        return self.viral_death_probability * frac
 
     def _infection_protection(self, agent_tag: str) -> float:
         """Multiplier on the agent's probability of contracting an infection.
@@ -1982,11 +2085,13 @@ class OpenGridWorld:
         """Loads and validates the artifacts the environment seeds by itself.
 
         Accepts a list of entries or a path to a JSON file containing one.
-        Each entry is {name, payload, pose, agent, lifespan, step}: only name
-        is required. The artifact appears on the map at pose (default: a
-        random free cell) or, if agent is given instead, directly in that
-        agent's inventory. lifespan defaults to -1 (never expires) and step
-        to 0 (seeded before the first timestep).
+        Each entry is {name, payload, pose, agent, role, lifespan, step}:
+        only name is required. The artifact appears on the map at pose
+        (default: a random free cell) or in inventories: agent (tag or name)
+        targets one being, role targets every living being with that persona
+        role, both together the named being required to hold the role.
+        lifespan defaults to -1 (never expires) and step to 0 (seeded before
+        the first timestep).
         """
         if init_artifacts is None:
             return []
@@ -2005,10 +2110,10 @@ class OpenGridWorld:
                     f"init_artifacts[{i}] must be a dict with at least a 'name' key, got {entry}"
                 )
             art_type = entry.get("type", "text")
-            if art_type not in ("text", "ppe", "health_spot"):
+            if art_type not in ("text", "ppe", "health_center"):
                 raise ValueError(
                     f"init_artifacts[{i}] ({entry['name']}): only 'text', 'ppe' and "
-                    f"'health_spot' artifacts can be seeded, got type '{art_type}'. "
+                    f"'health_center' artifacts can be seeded, got type '{art_type}'. "
                     "Viral artifacts are seeded through the "
                     "viral_init_infected/viral_outbreak_step parameters."
                 )
@@ -2041,28 +2146,30 @@ class OpenGridWorld:
                 raise ValueError(
                     f"init_artifacts[{i}] ({entry['name']}): step cannot be negative, got {step}"
                 )
+            role = entry.get("role")
+            if role is not None and pose is not None:
+                raise ValueError(
+                    f"init_artifacts[{i}] ({entry['name']}): role targets "
+                    "inventories; it cannot be combined with pose"
+                )
             extra = {}
-            if art_type == "health_spot":
-                if agent is not None:
+            if art_type == "health_center":
+                if agent is not None or role is not None:
                     raise ValueError(
-                        f"init_artifacts[{i}] ({entry['name']}): a health spot is fixed "
-                        "to the map; use pose, not agent"
+                        f"init_artifacts[{i}] ({entry['name']}): a health center is "
+                        "fixed to the map; use pose, not agent or role"
                     )
-                radius = int(entry.get("radius", 2))
                 heal_probability = float(entry.get("heal_probability", 0.2))
-                if radius < 0:
-                    raise ValueError(
-                        f"init_artifacts[{i}] ({entry['name']}): radius cannot be negative"
-                    )
+                radius = int(entry.get("radius", 1))
                 if not 0.0 <= heal_probability <= 1.0:
                     raise ValueError(
                         f"init_artifacts[{i}] ({entry['name']}): heal_probability must be in [0, 1]"
                     )
-                extra = {
-                    "radius": radius,
-                    "heal_probability": heal_probability,
-                    "operators": [str(o) for o in entry.get("operators") or []],
-                }
+                if radius < 0:
+                    raise ValueError(
+                        f"init_artifacts[{i}] ({entry['name']}): radius cannot be negative"
+                    )
+                extra = {"heal_probability": heal_probability, "radius": radius}
             validated.append(
                 {
                     "name": str(entry["name"]),
@@ -2070,6 +2177,7 @@ class OpenGridWorld:
                     "payload": str(entry.get("payload", "")),
                     "pose": pose,
                     "agent": str(agent) if agent is not None else None,
+                    "role": str(role) if role is not None else None,
                     "lifespan": lifespan,
                     "step": step,
                     **extra,
@@ -2094,46 +2202,62 @@ class OpenGridWorld:
                 remaining.append(entry)
                 continue
 
-            to_inventory = None
-            if entry.get("agent") is not None:
-                to_inventory = self._resolve_agent_ref(entry["agent"])
-                if to_inventory is None:
+            # Inventory targets: agent (tag or name), role (every living agent
+            # with it), or both (the named agent, required to hold the role).
+            agent_ref, role = entry.get("agent"), entry.get("role")
+            targets: List[str | None] = [None]
+            if agent_ref is not None or role is not None:
+                if agent_ref is not None:
+                    resolved = self._resolve_agent_ref(agent_ref)
+                    targets = [resolved] if resolved is not None else []
+                    if role is not None:
+                        targets = [
+                            t for t in targets if self.agent_roles.get(t) == role
+                        ]
+                else:
+                    targets = [
+                        t
+                        for t in self.agent_registry
+                        if self.agent_roles.get(t) == role
+                    ]
+                if not targets:
                     print(
-                        f"⚠️  Failed to seed artifact {entry['name']}: no living agent "
-                        f"{entry['agent']} at step {self.step_count}"
+                        f"⚠️  Failed to seed artifact {entry['name']}: no living "
+                        f"agent matching {agent_ref or ''}"
+                        f"{' role ' + role if role else ''} at step {self.step_count}"
                     )
                     continue
-                pose = self.agent_pos[to_inventory]
-            else:
-                pose = entry["pose"]
-                pose = tuple(pose) if pose is not None else self._random_free_pos()
 
             lifespan = np.inf if entry["lifespan"] == -1 else entry["lifespan"]
             params = {
-                k: entry[k]
-                for k in ("radius", "heal_probability", "operators")
-                if k in entry
-            }
-            status = self.add_artifact(
-                pose=pose,
-                art_type=entry.get("type", "text"),
-                art_name=entry["name"],
-                payload=entry["payload"],
-                creator="environment",
-                lifespan=lifespan,
-                to_inventory=to_inventory,
-                artifact_params=params or None,
-            )
-            if status.startswith("Created"):
-                where = (
-                    f"in {self.agent_names[to_inventory]}'s inventory"
-                    if to_inventory is not None
-                    else f"at {pose}"
+                k: entry[k] for k in ("heal_probability", "radius") if k in entry
+            } or None
+            for to_inventory in targets:
+                if to_inventory is not None:
+                    pose = self.agent_pos[to_inventory]
+                else:
+                    pose = entry["pose"]
+                    pose = tuple(pose) if pose is not None else self._random_free_pos()
+                status = self.add_artifact(
+                    pose=pose,
+                    art_type=entry.get("type", "text"),
+                    art_name=entry["name"],
+                    payload=entry["payload"],
+                    creator="environment",
+                    lifespan=lifespan,
+                    to_inventory=to_inventory,
+                    artifact_params=params,
                 )
-                if self.verbose >= 1:
-                    print(f"🌱 Seeded artifact {entry['name']} {where} 🌱")
-            else:
-                print(f"⚠️  Failed to seed artifact {entry['name']}: {status}")
+                if status.startswith("Created"):
+                    where = (
+                        f"in {self.agent_names[to_inventory]}'s inventory"
+                        if to_inventory is not None
+                        else f"at {pose}"
+                    )
+                    if self.verbose >= 1:
+                        print(f"🌱 Seeded artifact {entry['name']} {where} 🌱")
+                else:
+                    print(f"⚠️  Failed to seed artifact {entry['name']}: {status}")
         self._pending_init_artifacts = remaining
 
     def _seed_viral_outbreak(self, infos: dict):
@@ -2358,9 +2482,7 @@ class OpenGridWorld:
                         )
                     for art_name in self.agent_inventories[agent_tag]:
                         if self.artifacts[art_name].interactable:
-                            available_actions.update(
-                                self.artifacts[art_name].actions
-                            )
+                            available_actions.update(self.artifacts[art_name].actions)
 
                     if transferable and nearby_agents:
                         available_actions["give_artifact"] = deepcopy(
@@ -2733,8 +2855,8 @@ class OpenGridWorld:
                 return ViralArtifact.deserialize(data["data"])
             if art_type == "ppe":
                 return PPEArtifact.deserialize(data["data"])
-            if art_type == "health_spot":
-                return HealthSpotArtifact.deserialize(data["data"])
+            if art_type == "health_center":
+                return HealthCenterArtifact.deserialize(data["data"])
             return Artifact.deserialize(data["data"])
 
         raise TypeError(f"Type {data['__type__']} not deserializable")
@@ -2772,6 +2894,7 @@ class OpenGridWorld:
             "agent_inventories": {
                 agent: list(inv) for agent, inv in self.agent_inventories.items()
             },
+            "agent_recoveries": dict(self.agent_recoveries),
             "expired_artifacts": [
                 self._serialize(art) for art in self.expired_artifacts
             ],
@@ -2787,6 +2910,7 @@ class OpenGridWorld:
             "agent_time": self.agent_time,
             "agent_spawn": self.agent_spawn,
             "agent_names": self.agent_names,
+            "agent_roles": self.agent_roles,
             "agent_colors": self.agent_colors,
             "msg_raw": {
                 agent: self._serialize(msg) for agent, msg in self.msg_raw.items()
@@ -2837,6 +2961,7 @@ class OpenGridWorld:
         self.agent_inventories = defaultdict(set)
         for agent, inv in state_ckpt["agent_inventories"].items():
             self.agent_inventories[agent] = set(inv)
+        self.agent_recoveries = defaultdict(int, state_ckpt.get("agent_recoveries", {}))
         self.expired_artifacts = [
             art
             for art in (
@@ -2862,6 +2987,7 @@ class OpenGridWorld:
         self.agent_time = state_ckpt["agent_time"]
         self.agent_spawn = state_ckpt["agent_spawn"]
         self.agent_names = state_ckpt["agent_names"]
+        self.agent_roles = state_ckpt.get("agent_roles", {})
         self.agent_colors = state_ckpt["agent_colors"]
         self.msg_raw = {}
         for agent, msg in state_ckpt["msg_raw"].items():

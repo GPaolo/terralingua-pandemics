@@ -55,7 +55,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, Set, Tuple
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 #: Full world snapshot every this many steps, bounding how many deltas a reader
 #: must replay to seek to an arbitrary timestep.
@@ -64,7 +64,10 @@ KEYFRAME_INTERVAL = 50
 #: Order of the per-agent value arrays. Mirrored in the ``meta`` header so a
 #: reader never has to hardcode it.
 #: Append-only: the dashboard reads these positionally and ignores the header.
-AGENT_FIELDS = ["row", "col", "energy", "time", "n_inv", "n_viral", "n_sick", "n_ppe"]
+AGENT_FIELDS = [
+    "row", "col", "energy", "time", "n_inv", "n_viral", "n_sick", "n_ppe",
+    "n_recovered",
+]
 
 
 class WorldStateLogger:
@@ -82,7 +85,7 @@ class WorldStateLogger:
         self.fp = open(self.save_path, "a" if append else "w", buffering=1)
 
         self._prev_food: Dict[Tuple[int, int], float] = {}
-        self._prev_artifacts: Set[Tuple[int, int, str]] = set()
+        self._prev_artifacts: Set[Tuple[int, int, str, str]] = set()
         # Force a keyframe on the first line written, including after a resume.
         self._need_keyframe = True
 
@@ -103,7 +106,7 @@ class WorldStateLogger:
         t: int,
         agents: Dict[str, list],
         food: Dict[Tuple[int, int], float],
-        artifacts: Iterable[Tuple[int, int, str]],
+        artifacts: Iterable[Tuple[int, int, str, str]],
         food_total: float,
         n_infected: int,
         n_sick: int = 0,
@@ -111,17 +114,18 @@ class WorldStateLogger:
         """Record the world at timestep ``t``.
 
         ``agents`` maps agent_tag to a list ordered as :data:`AGENT_FIELDS`.
-        ``artifacts`` yields ``(row, col, artifact_name)`` for every artifact
-        lying on the map. ``n_infected`` counts beings hosting any infection,
-        ``n_sick`` the subset past incubation; the difference is the silent
-        carriers.
+        ``artifacts`` yields ``(row, col, display_name, kind)`` for every
+        artifact lying on the map (schema 5 added ``kind`` so the client can
+        draw remains and health centers with their own marks). ``n_infected``
+        counts beings hosting any infection, ``n_sick`` the subset past
+        incubation; the difference is the silent carriers.
         """
         artifacts = set(artifacts)
         keyframe = self._need_keyframe or t % KEYFRAME_INTERVAL == 0
 
         if keyframe:
             food_part = {"set": [[x, y, v] for (x, y), v in food.items()]}
-            art_part = {"set": [[x, y, n] for x, y, n in sorted(artifacts)]}
+            art_part = {"set": [list(a) for a in sorted(artifacts)]}
         else:
             food_part = {
                 "add": [
@@ -135,10 +139,10 @@ class WorldStateLogger:
             }
             art_part = {
                 "add": [
-                    [x, y, n] for x, y, n in sorted(artifacts - self._prev_artifacts)
+                    list(a) for a in sorted(artifacts - self._prev_artifacts)
                 ],
                 "del": [
-                    [x, y, n] for x, y, n in sorted(self._prev_artifacts - artifacts)
+                    list(a) for a in sorted(self._prev_artifacts - artifacts)
                 ],
             }
 

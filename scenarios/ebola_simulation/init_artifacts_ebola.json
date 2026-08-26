@@ -1,152 +1,154 @@
 [
     {
-        "name": "health_spot",
-        "type": "health_spot",
-        "pose": [25, 25],
-        "radius": 3,
+        "name": "Health Center",
+        "type": "health_center",
+        "pose": [
+            25,
+            25
+        ],
         "heal_probability": 0.2,
-        "operators": ["Miriam"],
+        "radius": 1,
         "lifespan": -1,
         "step": 0
     },
     {
-        "name": "ppe_01",
+        "name": "PPE_01",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_02",
+        "name": "PPE_02",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_03",
+        "name": "PPE_03",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_04",
+        "name": "PPE_04",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_05",
+        "name": "PPE_05",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_06",
+        "name": "PPE_06",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_07",
+        "name": "PPE_07",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_08",
+        "name": "PPE_08",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_09",
+        "name": "PPE_09",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_10",
+        "name": "PPE_10",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_11",
+        "name": "PPE_11",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_12",
+        "name": "PPE_12",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_13",
+        "name": "PPE_13",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_14",
+        "name": "PPE_14",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_15",
+        "name": "PPE_15",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_16",
+        "name": "PPE_16",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_17",
+        "name": "PPE_17",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_18",
+        "name": "PPE_18",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_19",
+        "name": "PPE_19",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     },
     {
-        "name": "ppe_20",
+        "name": "PPE_20",
         "type": "ppe",
-        "agent": "Miriam",
         "lifespan": -1,
-        "step": 0
+        "step": 0,
+        "role": "health_worker"
     }
 ]

@@ -306,19 +306,13 @@ class PPEArtifact(Artifact):
         return artifact
 
 
-DEFAULT_HEALTH_SPOT_DESCRIPTION = (
-    "A health spot. While a health worker attends it, infected beings nearby "
-    "have a chance to recover from the sickness."
-)
-
-
-class HealthSpotArtifact(Artifact):
+class HealthCenterArtifact(Artifact):
     """A fixed treatment site on the grid.
 
     Immovable: agents cannot pick it up, drop it, give it away or act on it.
-    While one of its ``operators`` stands within ``radius`` cells, every
-    infected agent within that radius has a per-step ``heal_probability`` of
-    losing its viral artifacts. An empty operator list lets any agent staff it.
+    Always active: every infected agent within ``radius`` cells (Chebyshev;
+    the default 1 covers its cell plus the 8 around it) has a per-step
+    ``heal_probability`` of losing its viral artifacts.
     """
 
     interactable = False
@@ -326,27 +320,25 @@ class HealthSpotArtifact(Artifact):
     def __init__(
         self,
         name: str,
-        payload: str = "",
+        payload: str = "A health center. Infected beings near it have a chance to recover from the sickness each day.",
         lifespan: int | float = -1,
         pose: Tuple[int, int] = (0, 0),
         creator: str = "environment",
         creation_time: int = 0,
-        radius: int = 2,
         heal_probability: float = 0.2,
-        operators: List[str] | None = None,
+        radius: int = 1,
     ):
         super().__init__(
             name=name,
-            payload=payload or DEFAULT_HEALTH_SPOT_DESCRIPTION,
+            payload=payload,
             lifespan=lifespan,
             pose=pose,
             creator=creator,
             creation_time=creation_time,
         )
-        self.art_type = "health_spot"
-        self.radius = int(radius)
+        self.art_type = "health_center"
         self.heal_probability = float(heal_probability)
-        self.operators = list(operators or [])
+        self.radius = int(radius)
 
     @property
     def actions(self):
@@ -366,17 +358,15 @@ class HealthSpotArtifact(Artifact):
 
     def serialize(self) -> dict:
         serialized = super().serialize()
-        serialized["radius"] = self.radius
         serialized["heal_probability"] = self.heal_probability
-        serialized["operators"] = list(self.operators)
+        serialized["radius"] = self.radius
         return serialized
 
     @classmethod
     def deserialize(cls, data: dict):
         artifact = super().deserialize(data)
-        artifact.radius = int(data.get("radius", 2))
         artifact.heal_probability = float(data.get("heal_probability", 0.2))
-        artifact.operators = list(data.get("operators") or [])
+        artifact.radius = int(data.get("radius", 1))
         return artifact
 
 
@@ -426,6 +416,10 @@ class ViralArtifact(Artifact):
         self.strain = strain if strain is not None else name
         # Steps left before the host develops symptoms. 0 means symptomatic now.
         self.incubation = incubation
+        # Set when the host dies: how the artifact presents to agents and the
+        # dashboard ("remains_of_<host>"). The internal name never changes, so
+        # transmission chains keyed on it stay intact.
+        self.display_name: str | None = None
 
     @property
     def symptomatic(self) -> bool:
@@ -472,6 +466,8 @@ class ViralArtifact(Artifact):
         serialized = super().serialize()
         serialized["strain"] = self.strain
         serialized["incubation"] = self.incubation
+        if self.display_name:
+            serialized["display_name"] = self.display_name
         return serialized
 
     @classmethod
@@ -481,4 +477,5 @@ class ViralArtifact(Artifact):
         # Runs predating the incubation phase have none: they were symptomatic
         # from the moment they were created.
         artifact.incubation = data.get("incubation", 0)
+        artifact.display_name = data.get("display_name")
         return artifact
