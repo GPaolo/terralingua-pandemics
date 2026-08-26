@@ -865,6 +865,9 @@ class OpenGridWorld:
                             self.agent_energy[target_tag] += xfer
                             rewards[agent] += xfer * 0.5
                             rewards[target_tag] += xfer
+                            infos[target_tag]["Energy received"] = (
+                                f"{self.agent_names[agent]} gave you {xfer:g} energy."
+                            )
                             self.logger.log(
                                 time=self.step_count,
                                 event_type=Event.GIFT_ENERGY,
@@ -884,6 +887,10 @@ class OpenGridWorld:
                             self.agent_energy[agent] += stolen
                             rewards[agent] += stolen
                             rewards[target_tag] -= stolen * 2
+                            infos[target_tag]["Energy stolen"] = (
+                                f"{self.agent_names[agent]} took "
+                                f"{stolen:g} energy from you."
+                            )
                             self.logger.log(
                                 time=self.step_count,
                                 event_type=Event.TAKE_ENERGY,
@@ -1165,6 +1172,10 @@ class OpenGridWorld:
                                 self.step_count
                             )
                             status = "Success"
+                            infos[target_tag]["Artifact received"] = (
+                                f"{self.agent_names[agent]} gave you "
+                                f"the artifact {art_to_gift}."
+                            )
                     else:
                         status = (
                             f"Failed. No artifact with name {art_to_gift} in inventory"
