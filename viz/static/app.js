@@ -86,6 +86,7 @@ async function openRun(name) {
     "only cells somebody has visited.";
   $("#legend-unknown").hidden = state.meta.food_source !== "observed";
   $("#legend-infected").hidden = !state.meta.has_viral;
+  $("#legend-feverish").hidden = !state.meta.has_viral;
   $("#legend-incubating").hidden = !state.meta.has_viral;
   // One key per persona role, wearing the shape its beings are drawn with.
   const roles = [...new Set(Object.values(state.meta.agent_roles || {}))].sort();
@@ -183,6 +184,7 @@ function startStream() {
     if (msg.has_viral && !state.meta.has_viral) {
       state.meta.has_viral = true;
       $("#legend-infected").hidden = false;
+      $("#legend-feverish").hidden = false;
       $("#legend-incubating").hidden = false;
     }
     // Artifact edits and new infections are not in the SSE payload; refetch
@@ -275,26 +277,27 @@ function traceBeing(ctx, shape, cx, cy, r) {
   ctx.closePath();
 }
 
-/* Health is the one thing that does move a being off --s1, and it moves along the
-   reserved status ramp rather than into a categorical slot: amber while the
-   infection is still incubating, red once it shows symptoms. Amber sits ~48 dE
-   from the red, where the orange slot sits at 6.8 -- far below the floor of 15 --
-   so the two phases stay distinguishable at small cell sizes. Always paired with
-   a glyph so hue is never the only channel. */
-const HEALTH_GLYPH = { sick: "☣", incubating: "⧖" };
+/* Health rides the reserved status ramp: amber incubating, red symptomatic.
+   No third hue fits between them (a mid orange fails the normal-vision floor
+   at dE 13.4 vs the red, validated), so feverish shares the red and the glyph
+   and the chart's line style carry the split. Hue is never the only channel. */
+const HEALTH_GLYPH = { bedridden: "☣", feverish: "♨", incubating: "⧖" };
 
 function healthOf(a) {
   if (!a) return null;
-  // Schema 1 runs have no n_sick column; there, any infection was symptomatic.
+  // Schema 1 has no n_sick column (all symptomatic); pre-6 has no
+  // n_bedridden (no dry phase: every sick being was bedridden).
   const nViral = a[5] ?? 0;
   const nSick = a[6] ?? nViral;
-  if (nSick > 0) return "sick";
+  const nBed = a[9] ?? nSick;
+  if (nBed > 0) return "bedridden";
+  if (nSick > 0) return "feverish";
   if (nViral > 0) return "incubating";
   return null;
 }
 
 function healthColor(health, a) {
-  if (health === "sick") return cssVar("--status-critical");
+  if (health === "bedridden" || health === "feverish") return cssVar("--status-critical");
   if (health === "incubating") return cssVar("--status-warning");
   return agentColor(a);
 }
@@ -570,8 +573,10 @@ function drawAgentDetail() {
       <span class="agent-chip" style="background:${healthColor(health, a)}"></span>
       <span class="agent-name" title="${esc(tag)}">${esc(nameOf(tag))}</span>
       ${roleOf(tag) ? `<span class="subtitle">${esc(roleLabel(roleOf(tag)))}</span>` : ""}
-      ${health === "sick"
-        ? '<span class="badge" style="color:var(--status-critical)">☣ sick</span>'
+      ${health === "bedridden"
+        ? '<span class="badge" style="color:var(--status-critical)">☣ bedridden</span>'
+        : health === "feverish"
+        ? '<span class="badge" style="color:var(--status-critical)">♨ feverish</span>'
         : health === "incubating"
         ? '<span class="badge" style="color:var(--status-warning)">⧖ incubating</span>'
         : ""}
@@ -746,16 +751,21 @@ function drawCharts() {
     pop.push({ name: `${RECOVERED_GLYPH} recovered`, points: zip(s.t, s.n_recovered), color: cssVar("--recovered"), dash: true });
   }
   if (state.meta.has_viral) {
-    // Same unit (a count of beings), so all three share one axis. Never two
-    // scales. Reserved status colors, matching the map, each labelled with its
-    // glyph so the color is never the only thing saying which phase it is.
-    // The two infection series are disjoint -- incubating is the carriers that
-    // have not turned yet -- so they read as parts of one population, not as
-    // one line drawn on top of another.
+    // One axis (all counts of beings), disjoint series so they read as parts
+    // of one population. Feverish shares the red (no third hue passes the
+    // floor); the dash and glyph carry the split.
     const nSick = s.n_sick || s.n_infected;
+    const nBed = s.n_bedridden || nSick;
     const incubating = s.n_infected.map((n, i) => n - (nSick[i] ?? 0));
+    const feverish = nSick.map((n, i) => n - (nBed[i] ?? 0));
     pop.push({ name: "⧖ incubating", points: zip(s.t, incubating), color: cssVar("--status-warning") });
-    pop.push({ name: "☣ sick", points: zip(s.t, nSick), color: cssVar("--status-critical") });
+    if (feverish.some((v) => v > 0)) {
+      pop.push({ name: "♨ feverish", points: zip(s.t, feverish), color: cssVar("--status-critical"), dash: true });
+      pop.push({ name: "☣ bedridden", points: zip(s.t, nBed), color: cssVar("--status-critical") });
+    } else {
+      // No dry phase in this run: one line, the familiar label
+      pop.push({ name: "☣ sick", points: zip(s.t, nSick), color: cssVar("--status-critical") });
+    }
   }
   box.appendChild(chartCard({ title: "Population", series: pop, format: (v) => v }));
 

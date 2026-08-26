@@ -352,8 +352,11 @@ class RunReader:
             "n_agents": r.get("n_agents", len(r["agents"])),
             "n_infected": r.get("n_infected", 0),
             # Schema 1 predates the incubation phase: every infection there was
-            # symptomatic from the start. Same fallback as series().
+            # symptomatic from the start. Same fallbacks as series().
             "n_sick": r.get("n_sick", r.get("n_infected", 0)),
+            "n_bedridden": r.get(
+                "n_bedridden", r.get("n_sick", r.get("n_infected", 0))
+            ),
         }
 
     def agent_tick(self, tag: str, t: int) -> Optional[dict]:
@@ -522,6 +525,14 @@ class RunReader:
             # symptomatic from the start, so it matches n_infected.
             "n_sick": [
                 self._steps[t].get("n_sick", self._steps[t].get("n_infected", 0))
+                for t in ts
+            ],
+            # Pre-schema-6 runs have no dry phase: bedridden matches sick.
+            "n_bedridden": [
+                self._steps[t].get(
+                    "n_bedridden",
+                    self._steps[t].get("n_sick", self._steps[t].get("n_infected", 0)),
+                )
                 for t in ts
             ],
             # Carriers counted from the agent rows (n_ppe is index 7, schema 3);
