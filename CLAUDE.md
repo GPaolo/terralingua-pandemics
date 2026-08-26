@@ -138,11 +138,15 @@ Traps:
   **once** (`infos["Deaths"]`) to beings within `funeral_announcement_radius`
   (-1: everyone; further beings only learn by word of mouth), with walkable
   directions from `_compass_offset` ("3 cells up, 2 cells right" — MOVE_DICT
-  words, shortest way around the torus) and **never the cause**. Remains
-  refuse burial for `funeral_mourning_days` (`buriable_after` on the
-  artifact; 0 = buriable at once and the text says "may be buried", no "0
-  days"), and the step the mourning ends a reminder goes out to earshot
-  (`_pending_burial_reminders`) — skipped if the remains are already gone.
+  words, shortest way around the torus) and **never the cause**. While
+  `funeral_mourning_days` lasts (`buriable_after` on the artifact; 0 =
+  buriable at once and the text says "may be buried", no "0 days") the
+  `bury` action is **withheld from the action list entirely** — the
+  handler's own "mourning has not ended" refusal is only the backstop for a
+  hand-driven step(). The affordance gate compares with <= where the handler
+  uses >=: affordances are computed one step ahead. The step the mourning
+  ends a reminder goes out to earshot (`_pending_burial_reminders`) —
+  skipped if the remains are already gone.
   **The burial is the funeral**: every other being within 1 cell of the grave
   rolls an exposure at `funeral_attendance_multiplier` (digger:
   `burial_infection_multiplier`; elsewhere: nothing), and the BURIAL event

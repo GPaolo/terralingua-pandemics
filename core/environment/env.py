@@ -1599,8 +1599,8 @@ class OpenGridWorld:
                     if not self._within_earshot(tag, pos):
                         continue
                     notes.append(
-                        f"{name} has died. Word spreads that their remains lie "
-                        f"unburied {self._compass_offset(self.agent_pos[tag], pos)}."
+                        f"{name} has died. Their remains lie unburied "
+                        f"{self._compass_offset(self.agent_pos[tag], pos)}."
                         f"{mourning}"
                     )
                 for name, pos, _ in due:
@@ -2767,9 +2767,19 @@ class OpenGridWorld:
                 available_actions["take"] = deepcopy(ACTION_TEXT["take"])
         # ---------------------------
 
-        # Burials: remains within reach, and the digger must be well
+        # Burials: remains within reach, the digger well, and the mourning
+        # over — while it lasts the action does not appear at all (these
+        # affordances are computed one step ahead, hence <=; the handler's
+        # own check is the backstop for a hand-driven step()).
         # ---------------------------
-        if self.burials and not sick and self._ground_viral_nearby(agent_tag):
+        if (
+            self.burials
+            and not sick
+            and any(
+                self.artifacts[n].buriable_after <= self.step_count
+                for n in self._ground_viral_nearby(agent_tag)
+            )
+        ):
             available_actions["bury"] = deepcopy(ACTION_TEXT["bury"])
         # ---------------------------
 
