@@ -348,7 +348,7 @@ class LLMAgent:
             time=formatted_obs["time"],
             inventory=formatted_obs["inventory"],
             additional_info=additional_info.strip(),
-            actions=json.dumps(available_actions, indent=4),
+            actions=json.dumps(available_actions, separators=(",", ":")),
             action_keys=", ".join(available_actions.keys()),
             memory=internal_memory,
             use_internal_memory=self.use_internal_memory,
