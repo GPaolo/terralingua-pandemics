@@ -10,6 +10,7 @@ MODEL_MAP = {
     "o3-mini": "o3-mini",
     "gpt-5.1": "gpt-5.1",
     "gpt-5-mini": "gpt-5-mini",
+    "gpt-5.6-luna": "gpt-5.6-luna",
     "QWEN2.5": "Qwen/Qwen2.5-32B-Instruct",
     "QWEN3": "Qwen/Qwen3-32B",
     "DeepSeek-R1-32": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
@@ -125,17 +126,10 @@ class LLMRouter:
                 "response_format": {"type": "json_object"},
                 "reasoning_effort": "low",
             }
-        elif self.model_name == "gpt-5.1":
+        elif str(self.model_name).startswith("gpt-5"):
             llm_client = AgentClient(provider="openai")
             llm_chat_params = {
-                "model": "gpt-5.1",
-                "response_format": {"type": "json_object"},
-                "reasoning_effort": "low",
-            }
-        elif self.model_name == "gpt-5-mini":
-            llm_client = AgentClient(provider="openai")
-            llm_chat_params = {
-                "model": "gpt-5-mini",
+                "model": self.model_name,
                 "response_format": {"type": "json_object"},
                 "reasoning_effort": "low",
             }

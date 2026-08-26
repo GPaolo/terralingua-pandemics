@@ -7,7 +7,7 @@ cd "$SCENARIO_DIR/../.."
 python main.py \
     \
     `# Experiment` \
-    --exp_name              "oliv_7" \
+    --exp_name              "50_agents" \
     --exp_description       "Test experiment contact virus incubation" \
     --max_ts                100  \
     --max_parallel_workers 20 \
@@ -15,16 +15,16 @@ python main.py \
     --verbose               1 `# terminal chatter: 0 warnings only, 1 key events, 2 per-step debug` \
     \
     `# Agent LLM` \
-    --model                 "claude-haiku-4-5" \
+    --model                 "gpt-5.6-luna" \
     \
     `# Agents` \
     --agents_name_prefix    "being" `# name prefix for agents, e.g. being_0, being_1, etc.` \
     --exogenous_motivation  "none" `# motivation mechanism for agents, e.g. "base", "creative", "survival", "none".` \
     --genome                "ocean_5" `# genome configuration for agents, e.g. "ocean_5", "no_traits", "sentence_directed".` \
-    --max_history           3 `# number of past timesteps to include in agent observations` \
+    --max_history           1 `# number of past timesteps to include in agent observations` \
     --internal_memory_size  150 `# size of the internal memory for agents` \
-    --max_message_size      100 `# max tokens per message; longer ones are cut off and the agent is told (-1: unlimited)` \
-    --max_text_artifact_size 250 `# max tokens a text artifact can hold` \
+    --max_message_size      50 `# max tokens per message; longer ones are cut off and the agent is told (-1: unlimited)` \
+    --max_text_artifact_size 200 `# max tokens a text artifact can hold` \
     --use_internal_memory `# flag to enable internal memory for agents` \
     --use_inventory `# flag to enable inventory for agents` \
     --no-use_colors `# flag to disable color usage for agents (agents can set a color for themselves that other agents can see)` \
@@ -34,9 +34,9 @@ python main.py \
     \
     `# Environment` \
     --grid_size             50 `# size of the grid environment (grid_size x grid_size)` \
-    --init_agents           20 `# initial number of agents in the environment` \
+    --init_agents           50 `# initial number of agents in the environment` \
     --init_human_agents     0 `# initial number of human agents in the environment` \
-    --min_agents            15 `# minimum number of agents in the environment` \
+    --min_agents            25 `# minimum number of agents in the environment` \
     --init_agent_energy     100 `# initial energy for each agent` \
     --init_food             500 `# initial amount of food in the environment` \
     --food_zones            3 `# number of food zones in the environment (areas where food can spawn more frequently)` \
