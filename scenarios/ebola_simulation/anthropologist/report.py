@@ -5,7 +5,8 @@ Usage:
 
 Writes to logs/<exp_name>/epidemic_analysis/ (override with --out):
     metrics.json, timeseries.csv, epidemic_curves.png, infections.png,
-    transmission_tree.png, secondary_cases.png, ppe.png
+    transmission_tree.png, secondary_cases.png, ppe.png, and — when the run
+    has them — burials.png and health_center.png
 and prints a text summary. Works on a run still in progress.
 """
 
@@ -19,6 +20,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import epidemic_utils as eu
@@ -217,6 +219,68 @@ def plot_secondary_cases(infections, r0, out_dir):
     return save(fig, out_dir, "secondary_cases.png")
 
 
+def plot_burials(burials, series, out_dir):
+    ts = [s["t"] for s in series]
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 5.5), sharex=True)
+    per_day = {t: 0 for t in ts}
+    for b in burials:
+        if b["t"] in per_day:
+            per_day[b["t"]] += 1
+    ax1.bar(ts, [per_day[t] for t in ts], color=BEING, width=1.0)
+    ax1.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax1.set_ylabel("burials / day")
+    ax1.set_title("Burials")
+
+    cum = cum_inf = 0
+    cums, cum_infs = [], []
+    for t in ts:
+        cum += per_day[t]
+        cum_inf += sum(1 for b in burials if b["t"] == t and b["infected"])
+        cums.append(cum)
+        cum_infs.append(cum_inf)
+    entries = [(ts, cums, "burials")]
+    ax2.plot(ts, cums, color=BEING)
+    if cum_infs and cum_infs[-1]:
+        ax2.plot(ts, cum_infs, color=RED)
+        entries.append((ts, cum_infs, "graves that infected the digger"))
+    label_ends(ax2, entries)
+    ax2.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax2.set_ylabel("cumulative")
+    ax2.set_xlabel("day")
+    ax2.margins(x=0.22)
+    return save(fig, out_dir, "burials.png")
+
+
+def plot_health_center(care, out_dir):
+    ts = [s["t"] for s in care]
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 5.5), sharex=True)
+    # Blue is the protective state (the PPE rule): under care = hazard scaled.
+    entries = []
+    for key, color, label in [
+        ("in_care", BEING, "beings in reach"),
+        ("sick_total", RED, "sick, total"),
+        ("sick_in_care", BLUE, "sick, under care"),
+    ]:
+        ys = [s[key] for s in care]
+        ax1.plot(ts, ys, color=color, label=label)
+        entries.append((ts, ys, label))
+    label_ends(ax1, entries)
+    ax1.set_ylabel("beings")
+    ax1.set_title("Health center reach", pad=26)
+    top_legend(ax1, ncols=3)
+    ax1.margins(x=0.16)
+
+    pct = [100.0 * s["sick_in_care"] / s["sick_total"] if s["sick_total"]
+           else float("nan") for s in care]
+    ax2.plot(ts, pct, color=BLUE)
+    label_end(ax2, ts, pct, "sick under care")
+    ax2.set_ylabel("% of the sick")
+    ax2.set_ylim(-3, 103)
+    ax2.set_xlabel("day")
+    ax2.margins(x=0.16)
+    return save(fig, out_dir, "health_center.png")
+
+
 def plot_ppe(series, ppe_metrics, out_dir):
     ts = [s["t"] for s in series]
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9, 4))
@@ -326,6 +390,19 @@ def generate(run_dir, out_dir=None):
         paths.append(plot_transmission_tree(infections, out_dir))
         paths.append(plot_secondary_cases(infections, metrics["r0"], out_dir))
     paths.append(plot_ppe(series, metrics["ppe"], out_dir))
+
+    events = eu.load_events(run_dir)
+    burials = eu.burial_records(events)
+    if burials:
+        paths.append(plot_burials(burials, series, out_dir))
+    centers = eu.health_centers(events)
+    if centers:
+        meta, frames = eu.load_frames(run_dir)
+        grid = (meta or {}).get("grid_size") or eu.load_params(
+            run_dir).get("env", {}).get("grid_size")
+        care = eu.care_series(frames, centers, grid)
+        if care:
+            paths.append(plot_health_center(care, out_dir))
 
     print_summary(metrics)
     print(f"\nWritten to {out_dir}/: metrics.json, timeseries.csv, "

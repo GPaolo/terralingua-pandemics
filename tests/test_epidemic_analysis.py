@@ -37,9 +37,12 @@ def build_epidemic_run(out: Path, steps: int = 60, grid: int = 9, n_agents: int 
         viral_infection_radius=1, viral_infection_probability=0.7,
         viral_energy_multiplier=3.0, viral_death_probability=0.1,
         ppe_protection=0.1,
+        burials=True, burial_infection_multiplier=2.0,
         init_artifacts=[
             {"name": "ppe_01", "type": "ppe", "agent": "b1"},
             {"name": "ppe_02", "type": "ppe", "agent": "b2"},
+            {"name": "clinic", "type": "health_center", "pose": [4, 4],
+             "heal_probability": 0.0, "hazard_multiplier": 0.5, "radius": 1},
         ],
     )
     tags = [f"b{i}" for i in range(n_agents)]
@@ -68,6 +71,11 @@ def build_epidemic_run(out: Path, steps: int = 60, grid: int = 9, n_agents: int 
     for _ in range(steps):
         actions = {}
         for tag in list(env.agent_registry):
+            remains = env._ground_viral_nearby(tag)
+            if remains and not env._count_sick(tag) and rng.random() < 0.5:
+                actions[tag] = {"action": "bury", "message": "",
+                                "params": {"name": next(iter(remains))}}
+                continue
             direction = "stay" if env._count_sick(tag) else rng.choice(DIRECTIONS)
             actions[tag] = {"action": "move", "message": "",
                             "params": {"direction": direction}}
@@ -157,6 +165,18 @@ def main():
               f"(with: {eff['with_ppe']['contacts']}, "
               f"without: {eff['without_ppe']['contacts']} contacts)")
 
+        burials = eu.burial_records(events)
+        assert burials, "no burials happened — reseed"
+        assert all(b["t"] is not None and b["artifact"] for b in burials)
+        centers = eu.health_centers(events)
+        assert len(centers) == 1 and centers[0]["pose"] == (4, 4)
+        care = eu.care_series(frames, centers, grid_size=9)
+        assert len(care) == len(frames)
+        for s in care:
+            assert s["sick_in_care"] <= min(s["in_care"], s["sick_total"])
+        print(f"PASS: {len(burials)} burials recorded, health-center care "
+              "series consistent")
+
         r0 = eu.r0_table(infections)
         assert r0["total_infections"] == len(infections)
         assert r0["completed"] + r0["censored"] == len(infections)
@@ -170,7 +190,8 @@ def main():
         json.dumps(metrics)
         expected = ["metrics.json", "timeseries.csv", "epidemic_curves.png",
                     "infections.png", "transmission_tree.png",
-                    "secondary_cases.png", "ppe.png"]
+                    "secondary_cases.png", "ppe.png", "burials.png",
+                    "health_center.png"]
         for name in expected:
             path = out / name
             assert path.exists() and path.stat().st_size > 0, name

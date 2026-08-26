@@ -144,6 +144,57 @@ def death_records(events):
     ]
 
 
+def burial_records(events):
+    """One record per burial: who dug, when, whose remains, and whether the
+    grave infected the digger."""
+    return [
+        {"t": e.get("timestamp"), "tag": e.get("agent_tag"),
+         "name": e.get("agent_name"), "infected": bool(e.get("infected")),
+         "artifact": (e.get("artifact") or {}).get("name")}
+        for e in events if e.get("event") == "BURIAL"
+    ]
+
+
+def health_centers(events):
+    """Every seeded health center's name, pose and care radius. The radius is
+    not serialized into events; the env default (1) is assumed if absent."""
+    return [
+        {"name": (e.get("artifact") or {}).get("name"),
+         "pose": tuple((e.get("artifact") or {}).get("pose") or ()),
+         "radius": int((e.get("artifact") or {}).get("radius", 1))}
+        for e in events
+        if e.get("event") == "ARTIFACT_ADDED"
+        and (e.get("artifact") or {}).get("art_type") == "health_center"
+    ]
+
+
+def care_series(frames, centers, grid_size):
+    """Per-frame health-center reach: beings inside any center's care radius
+    (their death hazard is scaled by hazard_multiplier), split by sickness."""
+    if not centers or not grid_size:
+        return []
+
+    def dist(a, b):
+        dr, dc = abs(a[0] - b[0]), abs(a[1] - b[1])
+        return max(min(dr, grid_size - dr), min(dc, grid_size - dc))
+
+    series = []
+    for fr in frames:
+        agents = list(fr["agents"].values())
+        in_care = [
+            a for a in agents
+            if any(dist((a["row"], a["col"]), c["pose"]) <= c["radius"]
+                   for c in centers)
+        ]
+        series.append({
+            "t": fr["t"],
+            "in_care": len(in_care),
+            "sick_in_care": sum(1 for a in in_care if a["n_sick"] > 0),
+            "sick_total": sum(1 for a in agents if a["n_sick"] > 0),
+        })
+    return series
+
+
 def ppe_names(events):
     """Names of every PPE artifact the run created (ARTIFACT_ADDED, art_type ppe)."""
     return {
