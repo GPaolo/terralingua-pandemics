@@ -509,8 +509,12 @@ function drawAgentList() {
     pill.title = (nameOf(tag) === tag ? "" : `${tag}${here ? "" : " — "}`) +
       (here ? "" : "not present at this step");
     const health = healthOf(here);
+    const role = roleOf(tag);
+    const marker = role
+      ? `<span class="chip glyph" style="color:${healthColor(health, here)}">${ROLE_GLYPHS[roleShape(role)]}</span>`
+      : `<span class="chip" style="background:${healthColor(health, here)}"></span>`;
     pill.innerHTML =
-      `<span class="chip" style="background:${healthColor(health, here)}"></span>${esc(nameOf(tag))}` +
+      `${marker}${esc(nameOf(tag))}` +
       (health ? ` ${HEALTH_GLYPH[health]}` : "") +
       (hasPPE(here) ? ` ${PPE_GLYPH}` : "") +
       (isRecovered(here) ? ` ${RECOVERED_GLYPH}` : "");

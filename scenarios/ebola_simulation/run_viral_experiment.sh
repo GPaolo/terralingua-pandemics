@@ -7,7 +7,7 @@ cd "$SCENARIO_DIR/../.."
 python main.py \
     \
     `# Experiment` \
-    --exp_name              "50_agents" \
+    --exp_name              "50_agents_30" \
     --exp_description       "Test experiment contact virus incubation" \
     --max_ts                100  \
     --max_parallel_workers 20 \
@@ -33,7 +33,7 @@ python main.py \
     --init_artifacts "$SCENARIO_DIR/init_artifacts_ebola.json" `# environment-seeded artifacts: 20 PPE in Miriam's (health worker) inventory` \
     \
     `# Environment` \
-    --grid_size             50 `# size of the grid environment (grid_size x grid_size)` \
+    --grid_size             30 `# size of the grid environment (grid_size x grid_size)` \
     --init_agents           50 `# initial number of agents in the environment` \
     --init_human_agents     0 `# initial number of human agents in the environment` \
     --min_agents            25 `# minimum number of agents in the environment` \

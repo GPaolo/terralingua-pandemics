@@ -345,6 +345,7 @@ footer.charts {
   color: var(--ink);
 }
 .agent-pill .chip { width: 8px; height: 8px; border-radius: 3px; }
+.agent-pill .chip.glyph { background: none; width: auto; min-width: 8px; height: auto; font-size: 11px; line-height: 1; text-align: center; }
 
 /* ---------- action + thought ---------- */
 
