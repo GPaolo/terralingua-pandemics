@@ -9,7 +9,7 @@ python main.py \
     `# Experiment` \
     --exp_name              "ebola_50_agents_30" \
     --exp_description       "Ebola-calibrated contact virus with incubation" \
-    --max_ts                300  \
+    --max_ts                200  \
     --max_parallel_workers 20 \
     --no-save_video \
     --verbose               1 `# terminal chatter: 0 warnings only, 1 key events, 2 per-step debug` \
@@ -42,7 +42,7 @@ python main.py \
     --food_zones            3 `# number of food zones in the environment (areas where food can spawn more frequently)` \
     --food_spawn_rate       10 `# mean food cells spawned per step (Poisson); occupied draws fail silently` \
     --food_mechanism `# flag to enable the food mechanism` \
-    --agent_lifespan        150 `# lifespan of agents in the environment` \
+    --agent_lifespan        250 `# lifespan of agents in the environment` \
     --vision_radius         6 `# vision radius of agents` \
     --dead_agent_food       "none" \
     --artifact_creation \
@@ -84,8 +84,8 @@ python main.py \
     --viral_mobile_infectiousness 0.3 `# transmission multiplier during those dry days; "wet" symptoms afterwards are bedridden and fully infectious` \
     --viral_dropped_lifespan 10 `# steps a viral artifact dropped at its host's death survives on the map, still spreading (-1: forever)` \
     --viral_infection_radius 1 `# max distance in cells at which a viral artifact can spread (1 = contact: the 8 adjacent cells)` \
-    --viral_infection_probability 0.15 `# per-step probability of catching it from a symptomatic being on an adjacent cell. Calibrate this to hit the target R0` \
-    --viral_contact_multiplier 4 `# touching (give/take energy) scales that exposure: 0.15 x 4 = 0.6 per contact — caregiving contact was the main Ebola transmission route` \
+    --viral_infection_probability 0.5 `# per-step probability of catching it from a symptomatic being on an adjacent cell. Scripted no-LLM calibration (calibrate_r0.py, 16 seeds, pooled gens 0-1, at contact x1.8 + funerals): 0.4 -> R0 1.77, 0.5 -> 2.00, 0.6 -> 1.74 (flat: contact-limited above ~0.5)` \
+    --viral_contact_multiplier 1.8 `# touching (give/take energy) scales that exposure: 0.5 x 1.8 = 0.9 per contact, probabilistic again — caregiving is near-certain but PPE (0.09) and luck still matter` \
     --viral_energy_multiplier 6 `# energy drain multiplier once symptomatic (K): 6/day for 12 days with no eating. Deliberately lethal on its own, so that gifted energy (a contact risk) genuinely buys survival — supportive care roughly halved the real CFR` \
     --viral_death_probability 0.11 `# hazard ramps 0 -> this over the 12 sick days; 1-prod(1-0.11*t/12) ~= 50% CFR from the roll alone, ~70% combined with the energy drain above (untreated Zaire ebolavirus)` \
     --ppe_protection        0.1 `# multiplier on the infection probability of a being carrying PPE (0: immune, 1: no protection)` \
@@ -94,4 +94,4 @@ python main.py \
     --funeral_announcement_radius 10 `# how far the news travels on its own; beings further away only learn by word of mouth` \
     --funeral_attendance_multiplier 1.5 `# mourners beside the grave at the burial roll an exposure at 1.5x — less than the digger's 2.5x, more than staying away` \
     --funeral_mourning_days 0 `# remains refuse burial for this many days so mourners can gather (announced, with a reminder when it ends). Set 2 for the enforced-custom variant` \
-    --burial_infection_multiplier 2.5 `# burying scales the burier's infection probability by this factor for that exposure (PPE still applies). Viral load peaks at death: corpses were the most infectious contacts of the 2014-16 outbreak`
+    --burial_infection_multiplier 1.9 `# burying scales the burier's infection probability by this factor for that exposure (PPE still applies). Viral load peaks at death: corpses were the most infectious contacts of the 2014-16 outbreak`
