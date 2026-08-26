@@ -16,4 +16,5 @@ plots/
 *-checkpoint.ipynb
 *.svg
 .idea/
+.DS_Store
 !viz/static/**

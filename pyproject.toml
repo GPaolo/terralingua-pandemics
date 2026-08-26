@@ -43,6 +43,7 @@ dependencies = [
     "litellm",
     "fastapi",
     "uvicorn",
+    "faker>=40.37.0",
 ]
 
 [tool.setuptools]
