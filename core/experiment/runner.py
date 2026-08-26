@@ -182,13 +182,19 @@ class SimulationRunner:
 
         genome_cls = self._get_genome_cls()
         persona_idx = 0
+        # Every being gets a human name: explicit persona names win, the rest
+        # draw unique Faker names.
+        explicit = {p["name"] for p in personas if p["name"]}
+        n_text = sum(1 for t in init_agents.values() if t == "text")
+        name_pool = _draw_names(max(0, n_text - len(explicit)), explicit)
         for agent_tag, agent_type in init_agents.items():
             if agent_type == "text":
-                persona, agent_name = "", agent_tag
+                persona, agent_name = "", None
                 if persona_idx < len(personas):
                     persona = personas[persona_idx]["persona"]
-                    agent_name = personas[persona_idx]["name"] or agent_tag
+                    agent_name = personas[persona_idx]["name"]
                 persona_idx += 1
+                agent_name = agent_name or name_pool.pop()
                 self.agents[agent_tag] = LLMAgent(
                     agent_tag=agent_tag,
                     agent_name=agent_name,
@@ -424,7 +430,7 @@ class SimulationRunner:
                 # We check env.agent_names so to verify against dead agents as well.
                 if new_agent_tag not in self.env.agent_names:
                     break
-            new_agent_name = new_agent_tag
+            new_agent_name = _draw_names(1, set(self.env.agent_names.values()))[0]
             self.agents[new_agent_tag] = LLMAgent(
                 agent_tag=new_agent_tag,
                 agent_name=new_agent_name,
