@@ -42,6 +42,7 @@ class LLMAgent:
         artifact_creation: bool = True,
         food_mechanism: bool = True,
         exogenous_motivation: str = "base",
+        persona: str = "",
         internal_memory_size: int = 150,
     ):
         """
@@ -58,6 +59,7 @@ class LLMAgent:
         self.artifact_creation = artifact_creation
         self.food_mechanism = food_mechanism
         self.exogenous_motivation = exogenous_motivation
+        self.persona = persona
 
         assert obs_style in OBS_STYLE, (
             f"Obs style {obs_style} invalid - Available: {list(OBS_STYLE.keys())}"
@@ -98,6 +100,7 @@ class LLMAgent:
                 artifact_creation=self.artifact_creation,
                 food_mechanism=self.food_mechanism,
                 exogenous_motivation=exogenous_motivation,
+                persona=self.persona,
                 internal_memory_size=self.internal_memory_size,
             ).strip()
 
@@ -438,6 +441,7 @@ class LLMAgent:
             "artifact_creation": self.artifact_creation,
             "food_mechanism": self.food_mechanism,
             "exogenous_motivation": self.exogenous_motivation,
+            "persona": self.persona,
             "genome": self.genome.as_dict(),
             "genome_class": f"{self.genome.__class__.__module__}:{self.genome.__class__.__name__}",
             "max_history": self.max_history,
@@ -459,6 +463,8 @@ class LLMAgent:
         self.artifact_creation = state_ckpt["artifact_creation"]
         self.food_mechanism = state_ckpt["food_mechanism"]
         self.exogenous_motivation = state_ckpt["exogenous_motivation"]
+        # .get so checkpoints predating personas still load
+        self.persona = state_ckpt.get("persona", "")
         self.max_history = state_ckpt["max_history"]
         self.verbose = state_ckpt["verbose"]
         self.debug = state_ckpt["debug"]

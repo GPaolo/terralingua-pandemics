@@ -27,6 +27,26 @@ from core.utils.generic import create_video
 from core.utils.llm_utils import select_with_retry
 
 
+def load_personas(path: str | None) -> List[str]:
+    """Loads a personas JSON file and expands it into a per-agent list.
+
+    The file is a list whose entries are either plain persona strings or
+    {"persona": str, "count": int} dicts (count defaults to 1). The returned
+    list holds one persona per agent, in file order.
+    """
+    if not path:
+        return []
+    with open(path) as f:
+        entries = json.load(f)
+    personas: List[str] = []
+    for entry in entries:
+        if isinstance(entry, str):
+            personas.append(entry)
+        else:
+            personas.extend([entry["persona"]] * int(entry.get("count", 1)))
+    return personas
+
+
 class SimulationRunner:
     def __init__(self, params: ExperimentConfig, resume: bool = False):
         print("Initializing SimulationRunner...")
@@ -127,9 +147,19 @@ class SimulationRunner:
         positions = {"being0": (10, 10), "being1": (12, 10)}
         self.last_spawn_idx = self.params.env.init_agents - 1
 
+        personas = load_personas(self.params.agent.personas)
+        if len(personas) > self.params.env.init_agents:
+            print(
+                f"⚠️ {len(personas)} personas but only "
+                f"{self.params.env.init_agents} initial agents; extras unused. ⚠️"
+            )
+
         genome_cls = self._get_genome_cls()
+        persona_idx = 0
         for agent_tag, agent_type in init_agents.items():
             if agent_type == "text":
+                persona = personas[persona_idx] if persona_idx < len(personas) else ""
+                persona_idx += 1
                 self.agents[agent_tag] = LLMAgent(
                     agent_tag=agent_tag,
                     agent_name=agent_tag,
@@ -141,6 +171,7 @@ class SimulationRunner:
                     food_mechanism=self.params.env.food_mechanism,
                     genome=genome_cls().random(),
                     exogenous_motivation=self.params.agent.exogenous_motivation,
+                    persona=persona,
                 )
                 self.env.add_agent(
                     agent_tag=agent_tag,
@@ -327,6 +358,10 @@ class SimulationRunner:
                             use_inventory=self.params.agent.use_inventory,
                             food_mechanism=self.params.env.food_mechanism,
                             exogenous_motivation=self.params.agent.exogenous_motivation,
+                            # getattr: HumanAgent parents have no persona
+                            persona=getattr(parent, "persona", "")
+                            if self.params.agent.hereditary_persona
+                            else "",
                         )
                     print(f"🍼 Agent {agent_tag} reproduced. New agent: {child_tag} 🍼")
                     # No need to register agent in environment, as env already did so.

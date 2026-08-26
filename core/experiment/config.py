@@ -29,6 +29,13 @@ class AgentConfig:
             "choices": AVAILABLE_GENOMES,
         },
     )
+    hereditary_persona: bool = field(
+        default=False,
+        metadata={
+            "help": "Children inherit their parent's persona "
+            "(parent A on two-parent reproduction)"
+        },
+    )
     internal_memory_size: int = field(
         default=150,
         metadata={"help": "Size in tokens of internal memory"},
@@ -44,6 +51,13 @@ class AgentConfig:
     obs_style: str = field(
         default="list",
         metadata={"help": "Observation style", "choices": list(OBS_STYLE.keys())},
+    )
+    personas: str | None = field(
+        default=None,
+        metadata={
+            "help": "Path to a JSON file with personas: a list of {persona, count} "
+            "entries (or plain strings) assigned to the initial agents in order"
+        },
     )
     use_colors: bool = field(
         default=False,

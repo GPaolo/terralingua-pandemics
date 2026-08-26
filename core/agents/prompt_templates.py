@@ -17,7 +17,8 @@ OBS_STYLE = {
 SYS_PROMPT = Template(
     """
 You are {{ agent_name }}, an autonomous living being in a 2D grid world shared with other beings.
-At each timestep you observe
+{% if persona %}{{ persona }}
+{% endif %}At each timestep you observe
     - {{ short_obs_descr }}.
     - Any broadcast messages sent by beings within your field of view.
     - Your energy level
