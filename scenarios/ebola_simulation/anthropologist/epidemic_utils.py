@@ -80,12 +80,17 @@ def load_events(run_dir):
 
 def infection_records(events):
     """One record per host-infection episode, with generation, secondary
-    count, and removed_at (None = still active, i.e. censored)."""
+    count, removed_at (None = still active, i.e. censored) and outcome
+    (died / recovered / active — the host's fate, not the artifact's:
+    a corpse's remains can stay infectious long after the host died)."""
     removed_at = {}
+    deaths_by_tag = defaultdict(list)
     for e in events:
         art = e.get("artifact") or {}
         if e.get("event") == "ARTIFACT_REMOVED" and art.get("art_type") == "viral":
             removed_at[art.get("name")] = e.get("timestamp")
+        elif e.get("event") == "AGENT_DIED":
+            deaths_by_tag[e.get("agent_tag")].append(e.get("timestamp"))
 
     records, by_name = [], {}
     for e in events:
@@ -118,6 +123,16 @@ def infection_records(events):
             cur = by_name.get(cur["source_artifact"])
             gen += 1
         rec["generation"] = gen
+        # Death inside the episode window; tags can be reused by respawns,
+        # so a death stamped before the infection is a different being.
+        died = any(
+            t is not None and rec["t"] is not None and t >= rec["t"]
+            and (rec["removed_at"] is None or t <= rec["removed_at"])
+            for t in deaths_by_tag.get(rec["host_tag"], [])
+        )
+        rec["outcome"] = ("died" if died
+                          else "recovered" if rec["removed_at"] is not None
+                          else "active")
     return records
 
 

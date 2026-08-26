@@ -108,6 +108,18 @@ def main():
         assert sum(r["secondary"] for r in infections) == len(infections) - len(seeds)
         print(f"PASS: transmission tree closed over {len(infections)} infections")
 
+        for r in infections:
+            assert r["outcome"] in ("died", "recovered", "active"), r
+            if r["outcome"] == "recovered":
+                assert r["removed_at"] is not None, r
+            elif r["outcome"] == "active":
+                assert r["removed_at"] is None, r
+        outcomes = {r["outcome"] for r in infections}
+        assert {"died", "recovered"} <= outcomes, (
+            f"need both fates for the tree ({outcomes}) — reseed"
+        )
+        print("PASS: episode outcomes split died / recovered / active")
+
         deaths = eu.death_records(events)
         series = eu.status_series(frames, infections, deaths)
         assert series[-1]["cum_infections"] == len(infections)

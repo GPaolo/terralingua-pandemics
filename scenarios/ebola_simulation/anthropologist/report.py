@@ -152,13 +152,17 @@ def plot_transmission_tree(infections, out_dir):
         if parent is not None:
             (x0, y0), (x1, y1) = pos[parent["artifact"]], pos[r["artifact"]]
             ax.plot([x0, x1], [y0, y1], color=AXIS, linewidth=1.0, zorder=1)
-    states = [(True, RED, "completed"), (False, AMBER, "still active")]
-    for done, color, label in states:
-        pts = [pos[r["artifact"]] for r in infections
-               if (r["removed_at"] is not None) == done]
+    # Recovered wears the dashboard's cyan ring, never a fill.
+    states = [
+        ("died", RED, SURFACE, 1.2, "died"),
+        ("recovered", SURFACE, CYAN, 1.6, "recovered (immune)"),
+        ("active", AMBER, SURFACE, 1.2, "still active"),
+    ]
+    for outcome, face, edge, lw, label in states:
+        pts = [pos[r["artifact"]] for r in infections if r["outcome"] == outcome]
         if pts:
-            ax.scatter(*zip(*pts), s=45, color=color, edgecolors=SURFACE,
-                       linewidths=1.2, zorder=2, label=label)
+            ax.scatter(*zip(*pts), s=45, facecolor=face, edgecolors=edge,
+                       linewidths=lw, zorder=2, label=label)
     for r in infections:
         x, y = pos[r["artifact"]]
         ax.annotate(r["host_name"] or r["host_tag"], (x, y), xytext=(4, 4),
