@@ -56,7 +56,18 @@ SICK_AGENT_NOTICE = (
 #: above — symptoms, never the virus by name.
 FEVERISH_AGENT_NOTICE = (
     "You have fallen ill: you are feverish and weak, and something is "
-    "draining your energy. For now you can still move, eat and act."
+    "draining your energy. You can still move, eat and act."
+)
+
+#: What a survivor is told, every step, once its last infection has cleared.
+#: Real Ebola survivors who understood their immunity became caregivers and
+#: burial workers; withholding this would waste the mechanic (recovery is
+#: permanent immunity — infect_agent refuses anyone with a recovery on
+#: record).
+RECOVERED_AGENT_NOTICE = (
+    "You have survived the sickness and recovered. Your body now resists "
+    "it: you cannot catch the sickness again, even from the sick or from "
+    "remains."
 )
 
 
@@ -226,6 +237,11 @@ class OpenGridWorld:
         self.agent_inventories: Dict[str, Set[str]] = defaultdict(set)
         # {agent_tag: infections cleared while alive (cure or natural expiry)}
         self.agent_recoveries: Dict[str, int] = defaultdict(int)
+        # The subset the agent lived through *symptomatic*: only these earn
+        # the "you are immune" notice. A silent carrier cured while still
+        # incubating is immune too, but telling it would leak the infection
+        # it never knew about.
+        self.agent_known_recoveries: Dict[str, int] = defaultdict(int)
         self.expired_artifacts: List[Artifact] = []
         # Total number of viral infections so far. Used to name infection copies uniquely.
         self.viral_infection_count = 0
@@ -545,6 +561,7 @@ class OpenGridWorld:
         self.food_count = []
         self.agent_inventories = defaultdict(set)
         self.agent_recoveries = defaultdict(int)
+        self.agent_known_recoveries = defaultdict(int)
         self._pending_funerals = []
         self.artifacts_map = defaultdict(set)
         self.artifacts = {}
@@ -590,6 +607,11 @@ class OpenGridWorld:
                 infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
             elif self._count_sick(agent_tag) > 0:
                 infos[agent_tag]["Health"] = FEVERISH_AGENT_NOTICE
+            elif (
+                self.agent_known_recoveries.get(agent_tag, 0) > 0
+                and self._count_viral(agent_tag) == 0
+            ):
+                infos[agent_tag]["Health"] = RECOVERED_AGENT_NOTICE
 
         self._log_world_state()
 
@@ -1455,6 +1477,7 @@ class OpenGridWorld:
                     if isinstance(artifact, ViralArtifact):
                         self.agent_recoveries[agent_tag] += 1
                         if artifact.symptomatic:
+                            self.agent_known_recoveries[agent_tag] += 1
                             infos.setdefault(agent_tag, {})["Health"] = (
                                 "You have recovered from the sickness. Your "
                                 "strength is back: you can move and eat again."
@@ -1568,6 +1591,13 @@ class OpenGridWorld:
                 infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
             elif self._count_sick(agent_tag) > 0:
                 infos[agent_tag]["Health"] = FEVERISH_AGENT_NOTICE
+            elif (
+                self.agent_known_recoveries.get(agent_tag, 0) > 0
+                and self._count_viral(agent_tag) == 0
+            ):
+                # setdefault: the richer "your strength is back" message from
+                # the expiry pass wins on the recovery step itself
+                infos[agent_tag].setdefault("Health", RECOVERED_AGENT_NOTICE)
             if self.use_colors:
                 agent_color = self.agent_colors.get(agent_tag, "no color")
                 infos[agent_tag]["Your color"] = agent_color
@@ -1889,6 +1919,7 @@ class OpenGridWorld:
         self.agent_time.pop(agent, None)
         self.msg_raw.pop(agent, None)
         self.agent_recoveries.pop(agent, None)
+        self.agent_known_recoveries.pop(agent, None)
         pos = self.agent_pos.pop(agent, None)
         dropped_remains = False
         if pos is not None:
@@ -2029,9 +2060,7 @@ class OpenGridWorld:
                     # ARTIFACT
                     if not self.inert_artifacts:
                         for art_name in self.artifacts_map[(gx, gy)]:
-                            observation[rel_pos].append(
-                                self._artifact_label(art_name)
-                            )
+                            observation[rel_pos].append(self._artifact_label(art_name))
                 # CELLS OUTSIDE OF MAP
                 else:
                     observation[rel_pos].append("X")
@@ -2127,6 +2156,8 @@ class OpenGridWorld:
                 was_sick = any(self.artifacts[n].symptomatic for n in hosted)
                 center.users[tag].add(self.step_count)
                 self.agent_recoveries[tag] += len(hosted)
+                if was_sick:
+                    self.agent_known_recoveries[tag] += 1
                 for n in hosted:
                     artifact = self.artifacts.pop(n)
                     artifact.deletion_time = self.step_count
@@ -2174,7 +2205,9 @@ class OpenGridWorld:
         if frac == 0.0:
             return 0.0
         return (
-            self.viral_death_probability * frac * self._care_hazard_multiplier(agent_tag)
+            self.viral_death_probability
+            * frac
+            * self._care_hazard_multiplier(agent_tag)
         )
 
     def _care_hazard_multiplier(self, agent_tag: str) -> float:
@@ -2243,9 +2276,13 @@ class OpenGridWorld:
         dc = shortest(to_pos[1] - from_pos[1])
         parts = []
         if dr:
-            parts.append(f"{abs(dr)} cell{'s' if abs(dr) != 1 else ''} {'down' if dr > 0 else 'up'}")
+            parts.append(
+                f"{abs(dr)} cell{'s' if abs(dr) != 1 else ''} {'down' if dr > 0 else 'up'}"
+            )
         if dc:
-            parts.append(f"{abs(dc)} cell{'s' if abs(dc) != 1 else ''} {'right' if dc > 0 else 'left'}")
+            parts.append(
+                f"{abs(dc)} cell{'s' if abs(dc) != 1 else ''} {'right' if dc > 0 else 'left'}"
+            )
         return ", ".join(parts) if parts else "on your own cell"
 
     def _load_init_artifacts(
@@ -3121,6 +3158,7 @@ class OpenGridWorld:
                 agent: list(inv) for agent, inv in self.agent_inventories.items()
             },
             "agent_recoveries": dict(self.agent_recoveries),
+            "agent_known_recoveries": dict(self.agent_known_recoveries),
             "expired_artifacts": [
                 self._serialize(art) for art in self.expired_artifacts
             ],
@@ -3188,6 +3226,9 @@ class OpenGridWorld:
         for agent, inv in state_ckpt["agent_inventories"].items():
             self.agent_inventories[agent] = set(inv)
         self.agent_recoveries = defaultdict(int, state_ckpt.get("agent_recoveries", {}))
+        self.agent_known_recoveries = defaultdict(
+            int, state_ckpt.get("agent_known_recoveries", {})
+        )
         self.expired_artifacts = [
             art
             for art in (

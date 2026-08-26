@@ -367,7 +367,8 @@ def test_sick_beings_are_debilitated():
     )
     assert pos_a not in env.food, "the food should be eaten once recovered"
     assert env.agent_energy["a"] == e_before + 10.0 - 1.0
-    assert "Health" not in infos["a"]
+    # A survivor is told it is immune, every step, from the recovery on
+    assert "cannot catch the sickness again" in infos["a"]["Health"]
     env._get_avail_actions("a")
     assert "take" in env.agent_avail_actions["a"]
     env.step({"a": {"action": "move", "params": {"direction": "up"}}})
