@@ -269,9 +269,42 @@ mbox.addEventListener("mousedown", (e) => {
   if (f) { e.preventDefault(); insertMention(f); }
 });
 
+// ------------------------------------------------------------ column resize
+
+function hookGutter() {
+  const main = document.querySelector("main");
+  const gutter = $("gutter");
+  const saved = localStorage.getItem("anthro-col-chat");
+  if (saved) main.style.setProperty("--col-chat", saved);
+  gutter.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    gutter.setPointerCapture(e.pointerId);
+    gutter.classList.add("dragging");
+    const onMove = (ev) => {
+      const r = main.getBoundingClientRect();
+      const px = r.right - ev.clientX;
+      const width = Math.round(Math.max(320, Math.min(px, r.width * 0.7)));
+      main.style.setProperty("--col-chat", width + "px");
+    };
+    const onUp = () => {
+      gutter.classList.remove("dragging");
+      gutter.removeEventListener("pointermove", onMove);
+      localStorage.setItem("anthro-col-chat",
+                           main.style.getPropertyValue("--col-chat"));
+    };
+    gutter.addEventListener("pointermove", onMove);
+    gutter.addEventListener("pointerup", onUp, { once: true });
+  });
+  gutter.addEventListener("dblclick", () => {
+    main.style.removeProperty("--col-chat");
+    localStorage.removeItem("anthro-col-chat");
+  });
+}
+
 // --------------------------------------------------------------------- init
 
 (async function init() {
+  hookGutter();
   await loadRuns();
   if (location.hash === "#compare") $("compare").hidden = false;
   loadState();
