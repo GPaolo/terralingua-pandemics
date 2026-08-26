@@ -68,6 +68,15 @@ def test_give_take_need_adjacency():
     )
     assert "no being named nobody" in infos["a"]["Action outcome"]
 
+    # Naming yourself is refused: self-distance is 0 and must not pass
+    env.agent_avail_actions["a"]["give"] = {"params": {"target": "", "amount": ""}}
+    e_a = env.agent_energy["a"]
+    _, rew, _, _, infos = env.step(
+        {"a": {"action": "give", "params": {"target": "a", "amount": 5}}}
+    )
+    assert "yourself" in infos["a"]["Action outcome"]
+    assert env.agent_energy["a"] == e_a - 1 and rew["a"] == -1
+
     # Adjacent (diagonal counts): both actions appear and the transfer lands
     env.agent_pos["b"] = (6, 6)
     env.pos_to_agent.pop((5, 8), None)

@@ -200,11 +200,11 @@ class EnvConfig:
         },
     )
     funeral_attendance_multiplier: float = field(
-        default=1.0,
+        default=0.0,
         metadata={
             "help": "Beings beside the grave when remains are buried roll an "
             "exposure at this multiple of viral_infection_probability "
-            "(the digger uses burial_infection_multiplier)"
+            "(the digger uses burial_infection_multiplier; 0 = digger only)"
         },
     )
     funeral_mourning_days: int = field(

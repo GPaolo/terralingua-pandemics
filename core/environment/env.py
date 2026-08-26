@@ -37,13 +37,7 @@ MOVE_DICT = {
 AGENT_INPUT_TYPE = ["text"]
 AVAILABLE_DEAD_AGENT_FOOD = ["single", "area", "none"]
 
-#: What an agent hosting a *symptomatic* viral artifact is told about itself,
-#: every step, in the "Additional info from the environment" block of its
-#: prompt. Deliberately describes the symptoms rather than naming the virus:
-#: nothing in the system prompt announces that sickness exists, so a healthy
-#: agent still has to work out what is happening to the being that stopped
-#: moving. An agent still incubating is told nothing at all — see
-#: OpenGridWorld._count_sick.
+
 SICK_AGENT_NOTICE = (
     "You are sick. Something is living inside you and draining your energy. "
     "You are too weak to move or to take energy from others, and you have no "
@@ -113,7 +107,7 @@ class OpenGridWorld:
         burial_infection_multiplier: float = 2.0,
         funeral_announcements: bool = False,
         funeral_announcement_radius: int = -1,
-        funeral_attendance_multiplier: float = 1.0,
+        funeral_attendance_multiplier: float = 0.0,
         funeral_mourning_days: int = 0,
         max_message_size: int = -1,  # tokens per message; -1: unlimited
         max_text_artifact_size: int = MAX_TEXT_ARTIFACT_SIZE,  # tokens per text artifact
@@ -159,7 +153,12 @@ class OpenGridWorld:
         self.funeral_attendance_multiplier = funeral_attendance_multiplier
         self.funeral_mourning_days = funeral_mourning_days
         self._pending_funerals: List[Tuple[str, Tuple[int, int]]] = []
-        self._pending_burial_reminders: List[Tuple[str, Tuple[int, int], int]] = []
+        # (name, remains position, step the mourning ends, remains art names)
+        self._pending_burial_reminders: List[tuple] = []
+        # Infections caught during the current step's action phase (touch,
+        # burial): their clocks start next step and they never spread the
+        # step they arrive. Cleared at the end of every step.
+        self._caught_mid_step: Set[str] = set()
         self.max_message_size = max_message_size
         self.max_text_artifact_size = max_text_artifact_size
         self._token_encoder = None  # lazy: only needed when messages are capped
@@ -541,6 +540,7 @@ class OpenGridWorld:
         self.agent_known_recoveries = defaultdict(int)
         self._pending_funerals = []
         self._pending_burial_reminders = []
+        self._caught_mid_step = set()
         self.artifacts_map = defaultdict(set)
         self.artifacts = {}
         self.expired_artifacts = []
@@ -581,16 +581,9 @@ class OpenGridWorld:
             infos[agent_tag] = {"available_actions": avail_actions}
             # Matters on --resume: agents sick before the checkpoint would
             # otherwise get their first prompt back without the notice.
-            health = self.health_state(agent_tag)
-            if health == "bedridden":
-                infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
-            elif health == "feverish":
-                infos[agent_tag]["Health"] = FEVERISH_AGENT_NOTICE
-            elif (
-                health == "healthy"
-                and self.agent_known_recoveries.get(agent_tag, 0) > 0
-            ):
-                infos[agent_tag]["Health"] = RECOVERED_AGENT_NOTICE
+            note = self._health_notice(agent_tag)
+            if note:
+                infos[agent_tag]["Health"] = note
 
         self._log_world_state()
 
@@ -653,6 +646,17 @@ class OpenGridWorld:
         if self._count_viral(agent_tag) > 0:
             return "incubating"
         return "healthy"
+
+    def _health_notice(self, agent_tag: str):
+        """What the being is told about its own health, by health_state."""
+        health = self.health_state(agent_tag)
+        if health == "bedridden":
+            return SICK_AGENT_NOTICE
+        if health == "feverish":
+            return FEVERISH_AGENT_NOTICE
+        if health == "healthy" and self.agent_known_recoveries.get(agent_tag, 0) > 0:
+            return RECOVERED_AGENT_NOTICE
+        return None
 
     def _hosted_infectiousness(self, artifact: ViralArtifact) -> float:
         """Reduced transmission while the host is still ambulatory."""
@@ -870,11 +874,16 @@ class OpenGridWorld:
                     # protects the digger.
                     if self.rng is None:
                         self.rng = np.random.default_rng()
-                    pos = None
-                    for cell in list(self.artifacts_map):
-                        if art_name in self.artifacts_map[cell]:
-                            pos = cell
-                            break
+                    pos = tuple(artifact.pose) if artifact.pose is not None else None
+                    if pos is None or art_name not in self.artifacts_map.get(pos, ()):
+                        pos = next(
+                            (
+                                c
+                                for c in self.artifacts_map
+                                if art_name in self.artifacts_map[c]
+                            ),
+                            None,
+                        )
                     risk = (
                         self.viral_infection_probability
                         * self.burial_infection_multiplier
@@ -885,6 +894,8 @@ class OpenGridWorld:
                         caught = self.infect_agent(
                             agent_tag=agent, source_artifact=artifact
                         )
+                        if caught is not None:
+                            self._caught_mid_step.add(caught)
                     # The burial is the funeral: mourners beside the grave
                     # take a lesser exposure than the digger.
                     attendees = []
@@ -904,11 +915,9 @@ class OpenGridWorld:
                                 got = self.infect_agent(
                                     agent_tag=other, source_artifact=artifact
                                 )
-                                # Say nothing while it incubates
-                                if got is not None and self.artifacts[got].symptomatic:
-                                    infos.setdefault(other, {})["Infection"] = (
-                                        f"Artifact {got} appeared in your inventory."
-                                    )
+                                if got is not None:
+                                    self._caught_mid_step.add(got)
+                                self._note_infection(infos, other, got)
                     if pos is not None:
                         self.artifacts_map[pos].discard(art_name)
                     self.artifacts.pop(art_name, None)
@@ -919,11 +928,7 @@ class OpenGridWorld:
                         agent,
                         f"You buried {artifact.display_name or art_name}.",
                     )
-                    # Say nothing while a caught infection incubates
-                    if caught is not None and self.artifacts[caught].symptomatic:
-                        infos.setdefault(agent, {})["Infection"] = (
-                            f"Artifact {caught} appeared in your inventory."
-                        )
+                    self._note_infection(infos, agent, caught)
                     self.logger.log(
                         time=self.step_count,
                         event_type=Event.BURIAL,
@@ -943,8 +948,15 @@ class OpenGridWorld:
                     if name == target_name and tag in self.agent_registry:
                         target_tag = tag
                         break
-
-                if target_tag is not None:
+                # self-distance is 0, so this needs its own gate
+                if target_tag == agent:
+                    self._note_outcome(
+                        infos,
+                        agent,
+                        f"You cannot {action_name} energy to yourself.",
+                    )
+                    rewards[agent] -= 1
+                elif target_tag is not None:
                     if (
                         self._toroidal_distance(
                             self.agent_pos[agent], self.agent_pos[target_tag]
@@ -1467,13 +1479,18 @@ class OpenGridWorld:
         for agent_tag, inventory in self.agent_inventories.items():
             for art_name in inventory:
                 artifact = self.artifacts[art_name]
+                is_viral = isinstance(artifact, ViralArtifact)
+                # Caught during this step's action phase: clocks start next step
+                if is_viral and art_name in self._caught_mid_step:
+                    updated_inventory[agent_tag].add(art_name)
+                    continue
                 # An infection that is still incubating burns its latency, not
                 # its lifespan: viral_lifespan counts symptomatic steps only, so
                 # a long incubation does not shorten the infectious window.
-                if isinstance(artifact, ViralArtifact) and artifact.incubation > 0:
+                if is_viral and artifact.incubation > 0:
                     artifact.incubation -= 1
                 elif artifact.remaining_time is not None:
-                    if isinstance(artifact, ViralArtifact):
+                    if is_viral:
                         symptomatic_ticked.append(art_name)
                     artifact.remaining_time -= 1
 
@@ -1588,12 +1605,9 @@ class OpenGridWorld:
                         f"{self._compass_offset(self.agent_pos[tag], pos)}."
                         f"{mourning}"
                     )
-                for name, pos, _ in due:
+                for name, pos, _, art_names in due:
                     # Skip if the remains are already gone (buried or expired)
-                    if not any(
-                        isinstance(self.artifacts.get(n), ViralArtifact)
-                        for n in self.artifacts_map.get(pos, ())
-                    ):
+                    if not any(n in self.artifacts for n in art_names):
                         continue
                     if not self._within_earshot(tag, pos):
                         continue
@@ -1621,18 +1635,11 @@ class OpenGridWorld:
             if agent_tag not in infos:
                 infos[agent_tag] = {}
             infos[agent_tag]["available_actions"] = avail_actions
-            health = self.health_state(agent_tag)
-            if health == "bedridden":
-                infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
-            elif health == "feverish":
-                infos[agent_tag]["Health"] = FEVERISH_AGENT_NOTICE
-            elif (
-                health == "healthy"
-                and self.agent_known_recoveries.get(agent_tag, 0) > 0
-            ):
-                # setdefault: the richer "your strength is back" message from
-                # the expiry pass wins on the recovery step itself
-                infos[agent_tag].setdefault("Health", RECOVERED_AGENT_NOTICE)
+            # setdefault: the richer "your strength is back" message from
+            # the expiry pass wins on the recovery step itself
+            note = self._health_notice(agent_tag)
+            if note:
+                infos[agent_tag].setdefault("Health", note)
             if self.use_colors:
                 agent_color = self.agent_colors.get(agent_tag, "no color")
                 infos[agent_tag]["Your color"] = agent_color
@@ -1644,6 +1651,7 @@ class OpenGridWorld:
         if self.verbose >= 2:
             print("Gotten avail actions for all agents")
 
+        self._caught_mid_step.clear()
         self.step_count += 1
         self.food_count.append(sum(self.food.values()))
         self._log_world_state()
@@ -1959,6 +1967,7 @@ class OpenGridWorld:
         self.agent_known_recoveries.pop(agent, None)
         pos = self.agent_pos.pop(agent, None)
         dropped_remains = False
+        dropped_names = []
         if pos is not None:
             # Artifacts are dropped at agent's death position
             artifacts = self.agent_inventories.pop(agent, None)
@@ -1987,6 +1996,7 @@ class OpenGridWorld:
                             self.step_count + self.funeral_mourning_days
                         )
                         dropped_remains = True
+                        dropped_names.append(art_name)
                     if art_name not in self.artifacts_map[pos]:
                         self.artifacts_map[pos].add(art_name)
                     else:
@@ -2025,6 +2035,7 @@ class OpenGridWorld:
                         self.agent_names[agent],
                         pos,
                         self.step_count + self.funeral_mourning_days,
+                        dropped_names,
                     )
                 )
 
@@ -2544,23 +2555,25 @@ class OpenGridWorld:
             agent_tag = candidates[int(idx)]
             art_name = self.infect_agent(agent_tag=agent_tag)
             if art_name is not None:
-                # An index case that is still incubating is told nothing — see
-                # _spread_viral_artifacts. The console line below is for the
-                # operator, not the agent.
-                if self.artifacts[art_name].symptomatic:
-                    infos.setdefault(agent_tag, {})["Infection"] = (
-                        f"Artifact {art_name} appeared in your inventory."
-                    )
+                self._note_infection(infos, agent_tag, art_name)
                 if self.verbose >= 1:
                     print(
                         f"🦠 Viral outbreak: {self.agent_names[agent_tag]}({agent_tag}) infected with {art_name} 🦠"
                     )
 
+    def _note_infection(self, infos: dict, agent_tag: str, art_name):
+        """The one place a fresh infection is announced — never while it
+        incubates (see the CLAUDE.md silence note)."""
+        if art_name is not None and self.artifacts[art_name].symptomatic:
+            infos.setdefault(agent_tag, {})["Infection"] = (
+                f"Artifact {art_name} appeared in your inventory."
+            )
+
     def _touch_exposure(self, agent_a: str, agent_b: str, infos: dict):
         """One physical contact: each side rolls per symptomatic artifact on
         the other, at probability x viral_contact_multiplier x PPE.
         """
-        if self.inert_artifacts:
+        if self.inert_artifacts or agent_a == agent_b:
             return
         if self.rng is None:
             self.rng = np.random.default_rng()
@@ -2580,10 +2593,9 @@ class OpenGridWorld:
                 caught = self.infect_agent(
                     agent_tag=dst, source_artifact=artifact, source_tag=src
                 )
-                if caught is not None and self.artifacts[caught].symptomatic:
-                    infos.setdefault(dst, {})["Infection"] = (
-                        f"Artifact {caught} appeared in your inventory."
-                    )
+                if caught is not None:
+                    self._caught_mid_step.add(caught)
+                self._note_infection(infos, dst, caught)
 
     def _spread_viral_artifacts(self, infos: dict):
         """Spreads viral artifacts to agents nearby their current location.
@@ -2615,7 +2627,12 @@ class OpenGridWorld:
         for host in self.agent_registry:
             for art_name in self.agent_inventories[host]:
                 artifact = self.artifacts.get(art_name)
-                if isinstance(artifact, ViralArtifact) and artifact.symptomatic:
+                if (
+                    isinstance(artifact, ViralArtifact)
+                    and artifact.symptomatic
+                    # Caught this step (by touch or burial): spreads next step
+                    and art_name not in self._caught_mid_step
+                ):
                     infections.append((host, self.agent_pos[host], artifact))
         for pos, art_names in self.artifacts_map.items():
             for art_name in art_names:
@@ -2656,25 +2673,21 @@ class OpenGridWorld:
                 if art_name is None:
                     continue
                 hosted_strains[target].add(artifact.strain)
-                # Say nothing while the new infection incubates: everything in
-                # infos is rendered verbatim into the agent's prompt, so this
-                # message alone would give the whole latent phase away.
-                if self.artifacts[art_name].symptomatic:
-                    infos.setdefault(target, {})["Infection"] = (
-                        f"Artifact {art_name} appeared in your inventory."
-                    )
+                self._note_infection(infos, target, art_name)
 
-    def _get_nearby_agents(self, agent_tag: str) -> List[str]:
-        agent_position = self.agent_pos[agent_tag]
-        x, y = agent_position
-        r = self.vision_radius
+    def _get_nearby_agents(self, agent_tag: str, r: int | None = None) -> List[str]:
+        """Other agents within r cells (default: vision), wrapping the seam."""
+        x, y = self.agent_pos[agent_tag]
+        if r is None:
+            r = self.vision_radius
         nearby_agents = []
         for dx in range(-r, r + 1):
             for dy in range(-r, r + 1):
-                gx, gy = x + dx, y + dy
-                if (gx, gy) in self.pos_to_agent and (gx, gy) != agent_position:
-                    nearby_agents.append(self.pos_to_agent[(gx, gy)])
-        return nearby_agents
+                tag = self.pos_to_agent.get(self.wrap_xy(x + dx, y + dy))
+                if tag is not None and tag != agent_tag:
+                    nearby_agents.append(tag)
+        # a tiny grid can wrap the same cell into view twice
+        return list(dict.fromkeys(nearby_agents))
 
     def _get_avail_actions(self, agent_tag: str):
         agent_position = self.agent_pos[agent_tag]
@@ -2705,24 +2718,10 @@ class OpenGridWorld:
 
         # Agent interactions
         # ---------------------------
-        x, y = agent_position
-        r = self.vision_radius
-        nearby_agents = False
-        for dx in range(-r, r + 1):
-            for dy in range(-r, r + 1):
-                gx, gy = x + dx, y + dy
-                if (gx, gy) in self.pos_to_agent and (gx, gy) != agent_position:
-                    nearby_agents = True
-                    break
-            if nearby_agents:
-                break
+        nearby_agents = bool(self._get_nearby_agents(agent_tag))
 
         # give/take need an adjacent being, not merely one in view
-        adjacent_agents = any(
-            self._toroidal_distance(agent_position, self.agent_pos[other]) <= 1
-            for other in self.agent_registry
-            if other != agent_tag
-        )
+        adjacent_agents = bool(self._get_nearby_agents(agent_tag, r=1))
         if adjacent_agents and self.food_mechanism:
             available_actions["give"] = deepcopy(ACTION_TEXT["give"])
             # A sick agent is too weak to steal, but can still give energy away
@@ -3014,9 +3013,10 @@ class OpenGridWorld:
 
         # Agents — full cell, colored (sick ones purple, incubating ones amber)
         for agent, agent_type in self.agent_registry.items():
-            if self._count_sick(agent) > 0:
+            health = self.health_state(agent)
+            if health in ("feverish", "bedridden"):
                 color = VIRAL_COLOR
-            elif self._count_viral(agent) > 0:
+            elif health == "incubating":
                 color = INCUBATING_COLOR
             else:
                 color = AGENT_PALETTE.get(agent_type, (100, 100, 100))
@@ -3202,6 +3202,8 @@ class OpenGridWorld:
             },
             "agent_recoveries": dict(self.agent_recoveries),
             "agent_known_recoveries": dict(self.agent_known_recoveries),
+            "pending_funerals": list(self._pending_funerals),
+            "pending_burial_reminders": list(self._pending_burial_reminders),
             "expired_artifacts": [
                 self._serialize(art) for art in self.expired_artifacts
             ],
@@ -3271,6 +3273,10 @@ class OpenGridWorld:
         self.agent_recoveries = defaultdict(int, state_ckpt.get("agent_recoveries", {}))
         self.agent_known_recoveries = defaultdict(
             int, state_ckpt.get("agent_known_recoveries", {})
+        )
+        self._pending_funerals = list(state_ckpt.get("pending_funerals", []))
+        self._pending_burial_reminders = list(
+            state_ckpt.get("pending_burial_reminders", [])
         )
         self.expired_artifacts = [
             art

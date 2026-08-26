@@ -190,6 +190,43 @@ def test_mourning_gates_burial_and_reminds():
     print("PASS: mourning refuses burial with a countdown, then reminds the living")
 
 
+def test_reminders_survive_a_checkpoint():
+    """A resume mid-mourning must not swallow the end-of-mourning notice."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        funeral_announcements=True,
+        funeral_mourning_days=2,
+        burials=True,
+        viral_infection_probability=0.0,
+        viral_lifespan=10,
+        viral_dropped_lifespan=8,
+    )
+    for tag in ("a", "b"):
+        env.add_agent(agent_tag=tag, agent_name=tag, agent_type="text")
+    env.restart_env(agent_poses={"a": (5, 5), "b": (5, 6)})
+    env.agent_energy["b"] = 1000.0
+    env.infect_agent(agent_tag="a")
+    env.agent_energy["a"] = 0.5
+    env.step({})  # death: announcement out, reminder queued
+
+    env2 = make_env(
+        Path(tempfile.mkdtemp()),
+        funeral_announcements=True,
+        funeral_mourning_days=2,
+        burials=True,
+        viral_infection_probability=0.0,
+        viral_lifespan=10,
+        viral_dropped_lifespan=8,
+    )
+    env2.add_agent(agent_tag="b", agent_name="b", agent_type="text")
+    env2.set_state_ckpt(env.get_state_ckpt())
+    _, _, _, _, infos = env2.step({})
+    _, _, _, _, infos = env2.step({})
+    assert "may now be buried" in infos["b"]["Deaths"], infos["b"]
+    print("PASS: the mourning-end reminder survives a checkpoint roundtrip")
+
+
 def test_attendees_roll_at_the_burial():
     """Everyone beside the grave is exposed when the remains are buried."""
     tmp = Path(tempfile.mkdtemp())
@@ -237,5 +274,6 @@ if __name__ == "__main__":
     test_announcements_wrap_and_gate()
     test_announcement_radius()
     test_mourning_gates_burial_and_reminds()
+    test_reminders_survive_a_checkpoint()
     test_attendees_roll_at_the_burial()
     print("\nAll funeral announcement checks passed ✅")

@@ -80,12 +80,12 @@ Traps:
   from. Placement used to hit the global `np.random`, which made layouts differ
   across processes and `test_world_state_log` flaky.
 - `give` / `take` are **contact**: offered and executed only against a being on
-  an adjacent cell (toroidal, so the seam works), and every transfer with a
-  symptomatic party rolls an exposure at `viral_infection_probability x
+  an adjacent cell (never yourself), and every transfer with a symptomatic
+  party rolls an exposure at `viral_infection_probability x
   viral_contact_multiplier` (`_touch_exposure`, both directions, PPE applies).
-  `give_artifact` still uses the old FOV gate, whose raw `x+dx, y+dy` loop
-  (`_get_nearby_agents`, and the FOV scan in `_get_avail_actions`) does not
-  wrap — so handing an *artifact* over still fails across the torus seam.
+  `_get_nearby_agents(tag, r=...)` wraps the seam and defaults to vision
+  radius. `give_artifact` still works at vision range and rolls **no**
+  exposure — handing PPE over is deliberately(?) risk-free; revisit.
 - `init_agent_energy < 0` means *infinite* energy: `agent_energy` becomes
   `np.inf`, which is not valid JSON. Guard before serializing.
 - **"Infected" is derived state, not a flag** — it means "has a `ViralArtifact` in
@@ -120,16 +120,17 @@ Traps:
   in `step`) so an infection transmits at the phase its host acted in;
   remains never take the dry discount (`_hosted_infectiousness` is only
   applied when the source has a host).
-- **Incubation must stay silent, and that takes five edits, not one.** Nothing
-  filters `infos` on the way to the prompt — `runner.py` pops `available_actions`
-  and `LLMAgent._make_prompt` renders every remaining key verbatim. A carrier is
-  hidden by: the `symptomatic` guard on the three `infos["Infection"]` messages
-  (`_spread_viral_artifacts`, `_seed_viral_outbreak`, `_touch_exposure`), and
-  `_is_hidden_infection` filtering both the inventory passive-effect loop and
-  `_build_obs`'s `inventory_list`. The immune notice keys on
-  `agent_known_recoveries` for the same reason. Add a new channel that names an
-  artifact and you reopen the leak. Other beings can't tell either —
-  observations render `artifacts_map` only, never someone else's inventory.
+- **Incubation must stay silent.** Nothing filters `infos` on the way to the
+  prompt — `runner.py` pops `available_actions` and `LLMAgent._make_prompt`
+  renders every remaining key verbatim. A carrier is hidden by:
+  `_note_infection` (the **only** place a fresh infection may be announced —
+  every transmission channel must go through it), `_is_hidden_infection`
+  filtering both the inventory passive-effect loop and `_build_obs`'s
+  `inventory_list`, and the immune notice keying on `agent_known_recoveries`.
+  Other beings can't tell either — observations render `artifacts_map` only,
+  never someone else's inventory. Related invariant: an infection caught
+  during the action phase (touch, burial) is in `_caught_mid_step` — its
+  clocks start next step and it never spreads the step it arrives.
 - `viral_lifespan` is the **symptomatic** period, not the total. `remaining_time`
   does not tick while `incubation > 0`, so latency sits in front of the infectious
   window rather than eating it. A corpse matures instantly (`_kill` zeroes

@@ -35,9 +35,10 @@ Line 1 is a ``meta`` header. Every later line is one timestep::
 their incubation, ``n_bedridden`` (schema 6) the subset past the ambulatory
 "dry" days — ``n_sick - n_bedridden`` is the feverish walkers. ``n_viral > 0
 and n_sick == 0`` is a silent carrier: it looks and behaves healthy and
-infects nobody. Schema 1 files have neither ``n_sick`` column nor key;
-readers should treat both as 0, and missing ``n_bedridden`` as ``n_sick``
-(pre-schema-6 runs had no dry phase).
+infects nobody. Schema 1 files have neither ``n_sick`` column nor key —
+every infection there was symptomatic from the start, so readers treat
+``n_sick`` as ``n_viral``/``n_infected``. Missing ``n_bedridden`` reads as
+``n_sick`` (no dry phase before schema 6).
 
 ``agents`` is written in full every step — the roster changes as beings die and
 reproduce, so a delta would cost more code than it saves. ``food`` and
