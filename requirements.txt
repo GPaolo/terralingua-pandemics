@@ -28,3 +28,6 @@ joblib
 pydot
 graphviz
 mplcursors
+litellm
+fastapi
+uvicorn

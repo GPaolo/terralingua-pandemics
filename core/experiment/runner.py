@@ -22,6 +22,7 @@ from core.experiment.config import ExperimentConfig
 from core.experiment.llm_router import LLMRouter
 from core.genome.no_traits import Genome as NoTraitsGenome
 from core.genome.ocean_5 import Genome as Ocean5Genome
+from core.genome.sentence_directed import Genome as SentenceDirectedGenome
 from core.utils.generic import create_video
 from core.utils.llm_utils import select_with_retry
 
@@ -69,6 +70,8 @@ class SimulationRunner:
             return Ocean5Genome
         elif self.params.agent.genome == "no_traits":
             return NoTraitsGenome
+        elif self.params.agent.genome == "sentence_directed":
+            return SentenceDirectedGenome
         else:
             raise ValueError(f"Unsupported genome type: {self.params.agent.genome}")
 
@@ -94,6 +97,18 @@ class SimulationRunner:
             food_mechanism=self.params.env.food_mechanism,
             dead_agent_food=self.params.env.dead_agent_food,
             inert_artifacts=self.params.env.inert_artifacts,
+            viral_init_infected=self.params.env.viral_init_infected,
+            viral_outbreak_step=self.params.env.viral_outbreak_step,
+            viral_lifespan=self.params.env.viral_lifespan,
+            viral_incubation_min=self.params.env.viral_incubation_min,
+            viral_incubation_max=self.params.env.viral_incubation_max,
+            viral_dropped_lifespan=self.params.env.viral_dropped_lifespan,
+            viral_infection_radius=self.params.env.viral_infection_radius,
+            viral_infection_probability=self.params.env.viral_infection_probability,
+            viral_energy_multiplier=self.params.env.viral_energy_multiplier,
+            init_artifacts=self.params.env.init_artifacts,
+            parent_authored_genome=self.params.agent.genome == "sentence_directed",
+            log_world_state=self.params.run.log_world_state,
         )
 
     def _init_state(self):
@@ -278,13 +293,33 @@ class SimulationRunner:
                     parent = self.agents[agent_tag]
                     child_name = info["reproduction"]["child_name"]
                     child_tag = info["reproduction"]["child_tag"]
+                    parent_b_tag = info["reproduction"].get("parent_b_tag")
+
+                    # If reproduction is two-parent, crossover the genomes of both parents to create the child genome.
+                    if parent_b_tag is not None and parent_b_tag in self.agents:
+                        parent_b = self.agents[parent_b_tag]
+                        child_genome = parent.genome.crossover(parent_b.genome)  # type: ignore
+
+                    # If reproduction is solo, mutate the genome of the parent.
+                    # In the case of sentence_directed, it's the parent that provides the genome
+                    elif parent.genome.genome_type == "sentence_directed":
+                        offspring_genome_str = str(
+                            info["reproduction"].get("offspring_genome", "").strip()
+                        )
+                        child_genome = SentenceDirectedGenome(
+                            sentence=offspring_genome_str or parent.genome.sentence  # type: ignore
+                        )
+                    else:
+                        child_genome = parent.genome.mutate(
+                            rate=self.params.env.genome_mutation_rate
+                        )
 
                     # TODO add ability to reproduce human agents
                     if info["reproduction"]["child_type"] == "text":
                         self.agents[child_tag] = LLMAgent(
                             agent_name=child_name,
                             agent_tag=child_tag,
-                            genome=parent.genome.mutate(),
+                            genome=child_genome,
                             log_dir=self.exp_logdir,
                             obs_style=self.params.agent.obs_style,
                             max_history=self.params.agent.max_history,
@@ -342,14 +377,23 @@ class SimulationRunner:
         for sig in (signal.SIGINT, signal.SIGTERM):
             signal.signal(sig, self._handle_term)
 
-        threading.Thread(target=self._watch_stdin, daemon=True).start()
-        print(
-            "ℹ️  Press Ctrl+D to force kill immediately, Ctrl+C to stop after current step."
-        )
+        # Only watch stdin on a real terminal: in headless runs (nohup, CI,
+        # stdin redirected) stdin is at EOF immediately and the watcher would
+        # force-kill the run at startup.
+        if sys.stdin.isatty():
+            threading.Thread(target=self._watch_stdin, daemon=True).start()
+            print(
+                "ℹ️  Press Ctrl+D to force kill immediately, Ctrl+C to stop after current step."
+            )
+        else:
+            print("ℹ️  Press Ctrl+C to stop after current step.")
 
         max_ts = self.params.run.max_ts
         ckpt_interval = self.params.run.ckpt_interval
         empty_countdown = self.params.run.empty_countdown
+        # If the loop body never runs (e.g. resuming a finished run), the final
+        # checkpoint below must still have a valid ts.
+        ts = self.start_ts - 1
         try:
             with ThreadPoolExecutor(
                 max_workers=self.params.run.max_parallel_workers
@@ -470,9 +514,13 @@ class SimulationRunner:
         for agent in self.agents.values():
             agent.close()
 
-        create_video(
-            str(self.exp_logdir / "frames" / "%05d.png"),
-            output_file=str(self.exp_logdir / "video.mp4"),
-            fps=self.params.run.video_fps,
-        )
+        if self.params.run.save_video:
+            try:
+                create_video(
+                    str(self.exp_logdir / "frames" / "%05d.png"),
+                    output_file=str(self.exp_logdir / "video.mp4"),
+                    fps=self.params.run.video_fps,
+                )
+            except Exception as e:
+                print(f"Error during video creation: {e}")
         # ---------------------------

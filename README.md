@@ -61,6 +61,82 @@ bash run_experiment.sh
 
 Logs are written to `logs/<exp_name>/`.
 
+## Watching an experiment
+
+`viz/` is a local web dashboard for following a run as it happens and scrubbing
+back through it afterwards. Start it in a second terminal — it is deliberately a
+separate process from the experiment:
+
+```bash
+python -m viz                     # serves ./logs on http://127.0.0.1:8000
+python -m viz --logs /data/logs --port 9999
+```
+
+It shows the world map (food, artifacts, beings, movement trails, the selected
+being's vision), a being inspector with energy, age, inventory and OCEAN-5
+genome, the action and the private `internal_memory` behind it, the chat feed,
+the artifacts, and charts of food, population, artifact creation and token spend.
+Viral runs additionally get infection status on the map — amber ⧖ for a being
+still incubating, red ☣ once it is sick — and R₀ per generation.
+
+Runs are picked up automatically: a run is **live** until `open_gridworld.log`
+records `END_RUN`, and the view follows new steps as they are written.
+
+Keyboard: `space` play/pause, `←`/`→` step (hold shift for 10), `home`/`end`,
+`esc` closes a dialog.
+
+### Where the data comes from
+
+Per-step world state is written to `logs/<exp_name>/world_state.jsonl` — agent
+positions, energy, age, infection, plus food and artifact deltas with a keyframe
+every 50 steps. Disable with `--no-log_world_state`; it costs roughly 20 MB for a
+3000-step, 100-agent run.
+
+Runs recorded before that file existed are reconstructed on first open (see
+`viz/backfill.py`), and the UI marks them **reconstructed**: positions are
+inferred from what the beings observed, and the food map shows only cells
+somebody has visited. The dashboard reads no `.pkl` file, so a run downloaded
+from elsewhere can be opened without executing its contents.
+
+### Seeding artifacts
+
+The environment can seed text artifacts by itself, at the start of a run or at a chosen timestep, via `--init_artifacts path/to/file.json`. The file is a JSON list of entries (see [`init_artifacts_example.json`](init_artifacts_example.json)):
+
+```json
+{
+    "name": "welcome_stone",
+    "payload": "Welcome to this world.",
+    "pose": [10, 10],
+    "lifespan": -1,
+    "step": 0
+}
+```
+
+| Field | Required | Default | Meaning |
+|---|---|---|---|
+| `name` | yes | — | Artifact name (uniquified with `_1` suffixes on collision) |
+| `payload` | no | `""` | Text content |
+| `pose` | no | random free cell | `[x, y]` map cell where the artifact appears |
+| `agent` | no | — | Agent tag or name whose inventory receives the artifact (mutually exclusive with `pose`) |
+| `lifespan` | no | `-1` | Steps before the artifact expires (`-1` = never) |
+| `step` | no | `0` | Timestep at which the artifact is seeded (`0` = before the first observation) |
+
+Seeded artifacts are ordinary text artifacts (agents can read, pick up, modify, destroy them), are logged as `ARTIFACT_ADDED` events with creator `environment`, and pending seeds survive checkpoint resumes without duplication.
+
+### Viral artifacts
+
+A virus-like artifact type for epidemic experiments: it has no content, cannot be created or acted on by agents, spreads probabilistically by contact — by default to agents standing in one of the 8 directly adjacent cells, diagonals and grid wraparound included — multiplies its host's energy consumption, and drops on the map for a limited time when its host dies. Enable it by setting `--viral_init_infected` > 0; widen the transmission range with `--viral_infection_radius` if you want an airborne virus instead. See `run_viral_experiment.sh` for an annotated example and the `viral_*` flags in `python main.py --help` for all knobs (outbreak step, incubation range, infection radius/probability, infection and corpse lifespans, energy multiplier). Every transmission is logged as a `VIRAL_INFECTION` event, from which the empirical R0 can be computed with `analysis_scripts/compute_r0.py`.
+
+A viral artifact can represent a real-world pathogen, like Ebola: see https://www.who.int/news-room/fact-sheets/detail/ebola-disease for instance.
+
+One timestep is one day, and an infection runs in two phases.
+
+**Incubating.** For `--viral_incubation_min`..`--viral_incubation_max` days (2–21 by default, drawn per infection) the host is a **silent carrier**. It moves, eats and takes energy exactly as a healthy being does, it infects nobody, it pays no extra energy — and it is told nothing at all. The virus is filtered out of its own inventory listing, so nothing in its prompt reveals that it is carrying anything. Nor can anyone else tell: inventories are not observable, so a carrier looks identical to a healthy being right up until it collapses. Set both bounds to `0` for the old behaviour, where infection and illness are simultaneous.
+
+**Sick.** Once the incubation runs out the being is told so in plain language every step. A sick being cannot move, cannot take energy from others, and loses its appetite — it will not eat the food it is standing on, and that food is left untouched for others (and for itself, once it recovers). It can still broadcast messages and still *receive* energy, so its energy strictly declines until either the infection expires or another being walks over and gives it some: asking for help is the only way out. Only now does it transmit, and only now does `--viral_energy_multiplier` apply.
+
+`--viral_lifespan` measures the **symptomatic** period alone: the latency sits in front of it rather than eating into it, so every host stays infectious for the same number of days whether it incubated for 2 or for 21. Because hosts stop moving and stop foraging once ill, they become stationary sources and realised R0 falls below the free-mixing estimate annotated in `run_viral_experiment.sh` — measure it rather than assuming it. Budget enough timesteps for the latency: each generation is pushed a mean ~11 days later, so short runs will report far more censored infections and may show no outbreak at all.
+
 ### Reproducing paper experiments
 
 The `paper_experiment_scripts/` folder contains the exact scripts used to run each experiment from the paper. All scripts must be run from the project root:

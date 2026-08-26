@@ -15,6 +15,11 @@ ArtifactCreationError = ValueError
 
 
 class Artifact:
+    # Whether agents can act on the artifact: pick it up, drop it, give it
+    # away or use the actions it offers. Non-interactable artifacts can only
+    # be affected by the environment itself.
+    interactable = True
+
     def __init__(
         self,
         name: str,
@@ -218,3 +223,107 @@ class TextArtifact(Artifact):
                 f"Payload exceeds maximum token limit of {MAX_TEXT_ARTIFACT_SIZE} tokens (got {token_count} tokens)",
             )
         return True, ""
+
+
+class ViralArtifact(Artifact):
+    """A virus-like artifact that lives only inside agent inventories.
+
+    It has no content and cannot be created by agents: the environment adds it
+    directly to an agent's inventory. Agents cannot act on it in any way
+    (no pickup/drop/give/modify/destroy). Each step the environment can spread
+    copies of it to nearby agents, and hosts consume energy faster. The
+    infection ends when the artifact's lifespan runs out. When its host dies,
+    it is dropped on the map for a set amount of time, during which it keeps
+    spreading to nearby agents.
+
+    An infection has two phases. While ``incubation`` steps remain the host is
+    a silent carrier: it behaves normally, pays no extra energy and infects
+    nobody. Once the countdown reaches zero the artifact is ``symptomatic`` and
+    everything above applies. ``lifespan`` measures the symptomatic period
+    only — ``remaining_time`` does not tick while the artifact is incubating —
+    so the infectious window is the same length whatever the latency was.
+    """
+
+    interactable = False
+
+    def __init__(
+        self,
+        name: str,
+        lifespan: int | float,
+        pose: Tuple[int, int],
+        creator: str,
+        creation_time: int,
+        strain: str | None = None,
+        incubation: int = 0,
+        payload: Any = "",  # ignored, viral artifacts have no content
+    ):
+        super().__init__(
+            name=name,
+            payload="",
+            lifespan=lifespan,
+            pose=pose,
+            creator=creator,
+            creation_time=creation_time,
+        )
+        self.art_type = "viral"
+        # Name of the strain this artifact belongs to. Copies keep the strain
+        # of their source, so an agent cannot host the same strain twice.
+        self.strain = strain if strain is not None else name
+        # Steps left before the host develops symptoms. 0 means symptomatic now.
+        self.incubation = incubation
+
+    @property
+    def symptomatic(self) -> bool:
+        """Whether the infection has run its incubation and shows symptoms."""
+        return self.incubation <= 0
+
+    @property
+    def actions(self):
+        # Hosts cannot act on a viral artifact
+        return {}
+
+    def passive_effect(self, timestamp: int, agent_name: str):
+        self.users[agent_name].add(timestamp)
+        return f"Artifact {self.name} cannot be interacted with."
+
+    def interact(
+        self, agent_name: str, action: str, params: dict, timestamp: int
+    ) -> str:
+        return f"Artifact {self.name} cannot be acted upon."
+
+    def verify_payload(self, payload) -> Tuple[bool, str]:
+        # Viral artifacts carry no content
+        return True, ""
+
+    def spawn_copy(
+        self, name: str, pose: Tuple[int, int], timestamp: int, incubation: int = 0
+    ):
+        """Creates the copy of this artifact that infects a new host.
+
+        The copy draws its own incubation rather than inheriting the source's:
+        how long the last host took to fall ill says nothing about this one.
+        """
+        return ViralArtifact(
+            name=name,
+            lifespan=self.lifespan,
+            pose=pose,
+            creator=self.creator,
+            creation_time=timestamp,
+            strain=self.strain,
+            incubation=incubation,
+        )
+
+    def serialize(self) -> dict:
+        serialized = super().serialize()
+        serialized["strain"] = self.strain
+        serialized["incubation"] = self.incubation
+        return serialized
+
+    @classmethod
+    def deserialize(cls, data: dict):
+        artifact = super().deserialize(data)
+        artifact.strain = data.get("strain", artifact.name)
+        # Runs predating the incubation phase have none: they were symptomatic
+        # from the moment they were created.
+        artifact.incubation = data.get("incubation", 0)
+        return artifact

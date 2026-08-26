@@ -26,6 +26,7 @@ ACTION_TEXT = {
         "params": {
             "energy": "Integer amount of **additional** energy the parent gifts the child (0 up to <parent_current_energy - {reproduction_cost}>)",
             "name": "Name of the offspring (use **unique** names)",
+            "offspring_genome": "A single short sentence (max 15 words) describing the personality of your offspring. Leave empty to pass on your own personality unchanged.",
         },
     },
     "create_artifact": {

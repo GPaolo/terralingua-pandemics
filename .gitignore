@@ -1,6 +1,7 @@
 **/__pycache__/**
 *.json
 !analysis_scripts/tags.json
+!init_artifacts_example.json
 *.log
 .env
 **/logs/** 
@@ -12,3 +13,5 @@ plots/
 *.pdf
 *-checkpoint.ipynb
 *.svg
+.idea/
+!viz/static/**

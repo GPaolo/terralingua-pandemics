@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "open-gridworld"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = "==3.12.*"
 # If you want to mirror requirements.txt here, list them under dependencies:
 # dependencies = ["numpy", "gymnasium", ...]
 dependencies = [
@@ -25,7 +25,7 @@ dependencies = [
     "umap-learn",
     "hdbscan",
     "torch",
-    "Pillow",
+    "pillow",
     "requests",
     "scikit-learn",
     "jinja2",
@@ -40,20 +40,27 @@ dependencies = [
     "pydot",
     "graphviz",
     "mplcursors",
+    "litellm",
+    "fastapi",
+    "uvicorn",
 ]
 
 [tool.setuptools]
 package-dir = {"" = "."}
 py-modules = ["main"]
 
+[tool.setuptools.package-data]
+viz = ["static/*"]
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["core*", "analysis_scripts*"]
+include = ["core*", "analysis_scripts*", "viz*"]
 exclude = ["logs*", "plots*", "*.egg-info", "__pycache__"]
 
 
 [project.scripts]
 open-gridworld-run = "main:main"
+terralingua-ui = "viz.server:main"
 
 [tool.ruff]
 # Format all Python files
