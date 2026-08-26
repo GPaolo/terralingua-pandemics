@@ -79,9 +79,13 @@ Traps:
   setting `env.rng` first) — it seeds the generator the placement helpers draw
   from. Placement used to hit the global `np.random`, which made layouts differ
   across processes and `test_world_state_log` flaky.
-- `_get_nearby_agents` and `_get_avail_actions` index raw `x+dx, y+dy` without
-  wrapping, so `give` / `take` are unavailable across the torus seam even when the
-  agents can see each other.
+- `give` / `take` are **contact**: offered and executed only against a being on
+  an adjacent cell (toroidal, so the seam works), and every transfer with a
+  symptomatic party rolls an exposure at `viral_infection_probability x
+  viral_contact_multiplier` (`_touch_exposure`, both directions, PPE applies).
+  `give_artifact` still uses the old FOV gate, whose raw `x+dx, y+dy` loop
+  (`_get_nearby_agents`, and the FOV scan in `_get_avail_actions`) does not
+  wrap — so handing an *artifact* over still fails across the torus seam.
 - `init_agent_energy < 0` means *infinite* energy: `agent_energy` becomes
   `np.inf`, which is not valid JSON. Guard before serializing.
 - **"Infected" is derived state, not a flag** — it means "has a `ViralArtifact` in
@@ -89,32 +93,53 @@ Traps:
   `infected` flag; it will drift.
 - **Recovery is permanent immunity.** An infection cleared alive (natural
   expiry or a health center) bumps `agent_recoveries[tag]`, and `infect_agent`
-  refuses any agent with a recovery on record — spread, outbreak and burial
-  risk all pass through it. Death is a per-symptomatic-step roll whose hazard
-  ramps 0 → `viral_death_probability` across the infectious window
-  (`_death_hazard`); an incubating carrier never rolls.
-- **Infected ≠ sick.** A `ViralArtifact` carries an `incubation` countdown and a
-  `symptomatic` property. `_count_viral` counts both phases; `_count_sick` counts
-  only the symptomatic ones, and **that** is what gates behaviour: `move` (still
-  offered, but restricted to `stay`), `take` (withdrawn), the *implicit* eat in
-  `step`, the `viral_energy_multiplier` drain, and whether the artifact spreads at
-  all. So `move` is no longer unconditionally available and ending a turn on a
-  food cell no longer implies eating it — but only once symptoms start. Use
-  `_count_sick` for anything the being can feel or do, `_count_viral` only for
-  "is it carrying anything".
-- **Incubation must stay silent, and that takes four edits, not one.** Nothing
+  refuses any agent with a recovery on record — spread, outbreak, touch and
+  burial risk all pass through it. `agent_known_recoveries` is the subset the
+  host lived through *symptomatic*: only those earn the persistent
+  `RECOVERED_AGENT_NOTICE` ("you are immune") — announcing a recovery the host
+  never felt would leak the silent infection. Death is a per-symptomatic-step
+  roll whose hazard ramps 0 → `viral_death_probability` across the infectious
+  window (`_death_hazard`), scaled by the best `hazard_multiplier` of any
+  health center in reach (supportive care, min not product — the PPE rule);
+  an incubating carrier never rolls. The ebola scenario sets the center's
+  `heal_probability` to 0: care halves the hazard, recovery is surviving the
+  12 days out. Every `AGENT_DIED` event carries `infected` (and
+  `agent_events.json` `died_infected`) because a bedridden host that starves
+  is a disease death filed under "hunger".
+- **Infected ≠ sick ≠ bedridden.** A `ViralArtifact` carries an `incubation`
+  countdown, a `symptomatic` property and a `days_symptomatic` counter. The
+  illness has three states: incubating (silent, harmless), **dry** (the first
+  `viral_mobile_days` symptomatic steps: feverish notice, full action set,
+  transmits at `viral_mobile_infectiousness` x the rate, pays the drain) and
+  **wet** (`_count_bedridden`): `move` restricted to `stay`, `take` and `bury`
+  withdrawn, the *implicit* eat in `step` suppressed, fully infectious.
+  `_count_viral` counts everything, `_count_sick` both symptomatic phases
+  (the health notice, the drain, n_sick in the world log), `_count_bedridden`
+  gates what the being can *do*. `viral_mobile_days = 0` is the old behaviour.
+  The dry-day clock advances **after** the spread pass (`symptomatic_ticked`
+  in `step`) so an infection transmits at the phase its host acted in;
+  remains never take the dry discount (`_hosted_infectiousness` is only
+  applied when the source has a host).
+- **Incubation must stay silent, and that takes five edits, not one.** Nothing
   filters `infos` on the way to the prompt — `runner.py` pops `available_actions`
   and `LLMAgent._make_prompt` renders every remaining key verbatim. A carrier is
-  hidden by: the `symptomatic` guard on the two `infos["Infection"]` messages
-  (`_spread_viral_artifacts`, `_seed_viral_outbreak`), and `_is_hidden_infection`
-  filtering both the inventory passive-effect loop and `_build_obs`'s
-  `inventory_list`. Add a new channel that names an artifact and you reopen the
-  leak. Other beings can't tell either — observations render `artifacts_map` only,
-  never someone else's inventory.
+  hidden by: the `symptomatic` guard on the three `infos["Infection"]` messages
+  (`_spread_viral_artifacts`, `_seed_viral_outbreak`, `_touch_exposure`), and
+  `_is_hidden_infection` filtering both the inventory passive-effect loop and
+  `_build_obs`'s `inventory_list`. The immune notice keys on
+  `agent_known_recoveries` for the same reason. Add a new channel that names an
+  artifact and you reopen the leak. Other beings can't tell either —
+  observations render `artifacts_map` only, never someone else's inventory.
 - `viral_lifespan` is the **symptomatic** period, not the total. `remaining_time`
   does not tick while `incubation > 0`, so latency sits in front of the infectious
   window rather than eating it. A corpse matures instantly (`_kill` zeroes
   `incubation`) so `viral_dropped_lifespan` keeps its plain meaning.
+- With `--funeral_announcements`, a death that drops remains is announced
+  **once** to every living being (`infos["Deaths"]`), with walkable directions
+  from `_compass_offset` ("3 cells up, 2 cells right" — MOVE_DICT words,
+  shortest way around the torus). Gathering at the corpse is the being's own
+  choice; the exposure stays in the ordinary ground-artifact spread and the
+  `bury` roll. Queued in `_kill` (`_pending_funerals`), flushed in `step`.
 - `env.reset(agent_tag)` resets **one agent**. The whole-world reset is
   `env.restart_env(seed=..., **options)`.
 - `env.add_agent` requires `agent_name` as well as `agent_tag`.
