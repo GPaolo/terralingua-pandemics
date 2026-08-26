@@ -138,6 +138,8 @@ array positionally (`healthOf`, the inspector destructure, the tooltip) and
 ignores the `agent_fields` header it is sent. Guard new indices with `?? 0` so a
 schema-1 file still renders. Schema 2 added `n_sick` at index 6 alongside the
 per-step `n_sick` scalar; `n_viral - n_sick` is the silent-carrier count.
+Schema 3 added `n_ppe` at index 7 (PPE artifacts carried; protection is the
+min over the inventory, never a product — `_infection_protection`).
 
 ## Charts
 
@@ -146,14 +148,17 @@ categorical hues assigned in fixed order and never cycled, a single-hue ramp for
 magnitude. Green is reserved for the food ramp and kept out of the categorical
 slots so a being never reads as the ground it stands on.
 
-**Beings are not colored by identity.** Every being is `--s1`; `agentColor()` takes
-no argument. Hue on the map is spent on state, not on who: health is the dot's
-**fill**, and selection is a neutral `--select` **bracket on the cell box**
-(`drawSelection`), never a ring on the dot. Don't reintroduce a per-being palette —
-reserved red sits below the legibility floor against both the orange and the
-magenta slot (ΔE 6.8 and 9.0, floor 15), so a healthy being would read as a sick
-one. Identity is carried by the brackets, the trail, the tooltip and the Beings
-list. Selection and infection must also never share a geometry: they were
+**Beings are not colored by identity.** The base being is neutral `--being` grey;
+`agentColor(a)` returns `--s1` blue only for a PPE carrier (state, still not
+identity; validated grey↔blue ΔE 17.0 normal, worst CVD pair 9.1). Hue on the map
+is spent on state, not on who: health is the dot's **fill** (and outranks the PPE
+blue — a sick carrier reads sick), and selection is a neutral `--select` **bracket
+on the cell box** (`drawSelection`), never a ring on the dot. Don't reintroduce a
+per-being palette — reserved red sits below the legibility floor against both the
+orange and the magenta slot (ΔE 6.8 and 9.0, floor 15), so a healthy being would
+read as a sick one. Identity is carried by the brackets, the trail, the tooltip
+and the Beings list. PPE is glyphed `⛨` (`PPE_GLYPH`) wherever health is glyphed,
+so hue is never the only channel. Selection and infection must also never share a geometry: they were
 concentric rings a pixel apart, and at mid cell sizes the selection ring painted
 straight over the infection ring.
 

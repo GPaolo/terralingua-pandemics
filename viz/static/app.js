@@ -201,14 +201,16 @@ function startStream() {
 
 /* ---------------- rendering ---------------- */
 
-/* Every being wears one hue. Identity by color only ever worked for the first
-   handful of beings, and it left no hue safe for infection: reserved red sits
-   below the legibility floor against both the orange and the magenta slot, so a
-   healthy being would have read as a sick one. Identity is carried by the
-   selection brackets, the trail, the tooltip and the Beings list instead. */
-function agentColor() {
-  return cssVar("--s1");
+/* Hue on a being is spent on state, never identity: neutral --being grey is the
+   base, --s1 blue marks a PPE carrier, and health moves along the status ramp.
+   Identity is carried by the selection brackets, the trail, the tooltip and the
+   Beings list instead. */
+function agentColor(a) {
+  return hasPPE(a) ? cssVar("--s1") : cssVar("--being");
 }
+
+const PPE_GLYPH = "⛨";
+const hasPPE = (a) => (a?.[7] ?? 0) > 0;
 
 /* Health is the one thing that does move a being off --s1, and it moves along the
    reserved status ramp rather than into a categorical slot: amber while the
@@ -228,10 +230,10 @@ function healthOf(a) {
   return null;
 }
 
-function healthColor(health) {
+function healthColor(health, a) {
   if (health === "sick") return cssVar("--status-critical");
   if (health === "incubating") return cssVar("--status-warning");
-  return agentColor();
+  return agentColor(a);
 }
 
 function foodColor(v, max) {
@@ -342,8 +344,9 @@ function drawMap() {
     const [x, y] = a;
     const cx = y * cell + cell / 2, cy = x * cell + cell / 2;
     const r = Math.max(1.5, cell * 0.36);
-    ctx.fillStyle = healthColor(healthOf(a));
+    ctx.fillStyle = healthColor(healthOf(a), a);
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    if (hasPPE(a)) $("#legend-ppe").hidden = false;
 
     // A 2px surface ring keeps overlapping marks legible.
     ctx.strokeStyle = cssVar("--surface");
@@ -421,8 +424,9 @@ function drawAgentList() {
     pill.title = here ? "" : "not present at this step";
     const health = healthOf(here);
     pill.innerHTML =
-      `<span class="chip" style="background:${healthColor(health)}"></span>${esc(tag)}` +
-      (health ? ` ${HEALTH_GLYPH[health]}` : "");
+      `<span class="chip" style="background:${healthColor(health, here)}"></span>${esc(tag)}` +
+      (health ? ` ${HEALTH_GLYPH[health]}` : "") +
+      (hasPPE(here) ? ` ${PPE_GLYPH}` : "");
     pill.onclick = () => selectAgent(tag);
     box.appendChild(pill);
   }
@@ -456,13 +460,14 @@ function drawAgentDetail() {
 
   box.innerHTML = `
     <div class="agent-head">
-      <span class="agent-chip" style="background:${healthColor(health)}"></span>
+      <span class="agent-chip" style="background:${healthColor(health, a)}"></span>
       <span class="agent-name">${esc(tag)}</span>
       ${health === "sick"
         ? '<span class="badge" style="color:var(--status-critical)">☣ sick</span>'
         : health === "incubating"
         ? '<span class="badge" style="color:var(--status-warning)">⧖ incubating</span>'
         : ""}
+      ${hasPPE(a) ? `<span class="badge" style="color:var(--s1)">${PPE_GLYPH} PPE</span>` : ""}
     </div>
     ${meter("Energy", energy, initE * 2, "--s3", energy == null ? "—" : Math.round(energy))}
     ${age == null
@@ -811,7 +816,8 @@ function tooltipHtml(x, y) {
     // Plain text tooltip, so the glyph is the only channel available here.
     const health = healthOf(a);
     html += `<div><span class="tip-link" data-tag="${esc(tag)}">${esc(tag)}</span>` +
-      `${health ? ` ${HEALTH_GLYPH[health]}` : ""}  energy ${a[2] ?? "∞"}</div>`;
+      `${health ? ` ${HEALTH_GLYPH[health]}` : ""}${hasPPE(a) ? ` ${PPE_GLYPH}` : ""}` +
+      `  energy ${a[2] ?? "∞"}</div>`;
     clickable++;
   }
   for (const [ax, ay, name] of state.world.artifacts) {

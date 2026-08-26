@@ -55,7 +55,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, Set, Tuple
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 #: Full world snapshot every this many steps, bounding how many deltas a reader
 #: must replay to seek to an arbitrary timestep.
@@ -64,7 +64,7 @@ KEYFRAME_INTERVAL = 50
 #: Order of the per-agent value arrays. Mirrored in the ``meta`` header so a
 #: reader never has to hardcode it.
 #: Append-only: the dashboard reads these positionally and ignores the header.
-AGENT_FIELDS = ["row", "col", "energy", "time", "n_inv", "n_viral", "n_sick"]
+AGENT_FIELDS = ["row", "col", "energy", "time", "n_inv", "n_viral", "n_sick", "n_ppe"]
 
 
 class WorldStateLogger:

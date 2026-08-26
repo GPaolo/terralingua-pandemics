@@ -16,6 +16,7 @@ from core.environment.artifact import (
     ARTIFACT_TYPE,
     Artifact,
     ArtifactCreationError,
+    PPEArtifact,
     TextArtifact,
     ViralArtifact,
 )
@@ -87,6 +88,7 @@ class OpenGridWorld:
         viral_infection_radius: int = 1,
         viral_infection_probability: float = 0.3,
         viral_energy_multiplier: float = 2.0,
+        ppe_protection: float = 0.1,
         init_artifacts: str | Path | List[dict] | None = None,
         parent_authored_genome: bool = False,
         log_world_state: bool = True,
@@ -122,6 +124,8 @@ class OpenGridWorld:
         self.viral_infection_radius = viral_infection_radius
         self.viral_infection_probability = viral_infection_probability
         self.viral_energy_multiplier = viral_energy_multiplier
+        # Multiplier on the contraction probability of an agent carrying PPE
+        self.ppe_protection = ppe_protection
         # Artifacts seeded by the environment itself, as a list of entries
         # {name, payload, pose, lifespan, step} or a path to a JSON file
         # containing such a list
@@ -268,6 +272,10 @@ class OpenGridWorld:
         if to_inventory is not None and to_inventory not in self.agent_registry:
             return f"Failed. No agent {to_inventory} to receive the artifact"
 
+        # Agents can only create the types advertised in ARTIFACT_TYPE
+        if is_agent_creator and art_type not in ARTIFACT_TYPE:
+            return f"Artifact type: {art_type} is not a valid type. Only artifact valid types are: {list(ARTIFACT_TYPE.keys())}"
+
         if art_type == "text":
             while art_name in self.artifacts:
                 art_name = f"{art_name}_1"
@@ -282,6 +290,18 @@ class OpenGridWorld:
                 )
             except ArtifactCreationError as e:
                 return str(e)
+        elif art_type == "ppe":
+            while art_name in self.artifacts:
+                art_name = f"{art_name}_1"
+            artifact = PPEArtifact(
+                name=art_name,
+                payload=payload,
+                pose=pose,
+                creator=creator,
+                lifespan=lifespan,
+                creation_time=self.step_count,
+                protection=self.ppe_protection,
+            )
         else:
             return f"Artifact type: {art_type} is not a valid type. Only artifact valid types are: {list(ARTIFACT_TYPE.keys())}"
 
@@ -518,6 +538,14 @@ class OpenGridWorld:
             and self.artifacts[name].symptomatic
         )
 
+    def _count_ppe(self, agent_tag: str) -> int:
+        """How many PPE artifacts this agent carries (protection does not stack)."""
+        return sum(
+            1
+            for name in self.agent_inventories[agent_tag]
+            if isinstance(self.artifacts.get(name), PPEArtifact)
+        )
+
     def _log_world_state(self):
         """Append the current world to ``world_state.jsonl``.
 
@@ -548,6 +576,7 @@ class OpenGridWorld:
                 len(self.agent_inventories[tag]),
                 n_viral,
                 n_sick_tag,
+                self._count_ppe(tag),
             ]
 
         # artifacts_map is a defaultdict, so a stale read can leave empty sets
@@ -1712,6 +1741,21 @@ class OpenGridWorld:
         artifact = self.artifacts.get(art_name)
         return isinstance(artifact, ViralArtifact) and not artifact.symptomatic
 
+    def _infection_protection(self, agent_tag: str) -> float:
+        """Multiplier on the agent's probability of contracting an infection.
+
+        The best (lowest) protection carried wins; carrying several protective
+        artifacts does not stack.
+        """
+        return min(
+            (
+                self.artifacts[a].infection_protection
+                for a in self.agent_inventories[agent_tag]
+                if a in self.artifacts
+            ),
+            default=1.0,
+        )
+
     def _hosted_viral_strains(self, agent_tag: str) -> Set[str]:
         """Strains of the viral artifacts currently in an agent's inventory.
 
@@ -1760,11 +1804,11 @@ class OpenGridWorld:
                     f"init_artifacts[{i}] must be a dict with at least a 'name' key, got {entry}"
                 )
             art_type = entry.get("type", "text")
-            if art_type != "text":
+            if art_type not in ("text", "ppe"):
                 raise ValueError(
-                    f"init_artifacts[{i}] ({entry['name']}): only 'text' artifacts can be "
-                    f"seeded, got type '{art_type}'. Viral artifacts are seeded through "
-                    "the viral_init_infected/viral_outbreak_step parameters."
+                    f"init_artifacts[{i}] ({entry['name']}): only 'text' and 'ppe' artifacts "
+                    f"can be seeded, got type '{art_type}'. Viral artifacts are seeded "
+                    "through the viral_init_infected/viral_outbreak_step parameters."
                 )
             pose = entry.get("pose")
             agent = entry.get("agent")
@@ -1798,6 +1842,7 @@ class OpenGridWorld:
             validated.append(
                 {
                     "name": str(entry["name"]),
+                    "type": art_type,
                     "payload": str(entry.get("payload", "")),
                     "pose": pose,
                     "agent": str(agent) if agent is not None else None,
@@ -1841,7 +1886,7 @@ class OpenGridWorld:
             lifespan = np.inf if entry["lifespan"] == -1 else entry["lifespan"]
             status = self.add_artifact(
                 pose=pose,
-                art_type="text",
+                art_type=entry.get("type", "text"),
                 art_name=entry["name"],
                 payload=entry["payload"],
                 creator="environment",
@@ -1930,6 +1975,9 @@ class OpenGridWorld:
         hosted_strains = {
             tag: self._hosted_viral_strains(tag) for tag in self.agent_registry
         }
+        protection = {
+            tag: self._infection_protection(tag) for tag in self.agent_registry
+        }
         for host, source_pos, artifact in infections:
             for target in self.agent_registry:
                 if target == host:
@@ -1939,7 +1987,10 @@ class OpenGridWorld:
                 distance = self._toroidal_distance(source_pos, self.agent_pos[target])
                 if distance > self.viral_infection_radius:
                     continue
-                if self.rng.random() >= self.viral_infection_probability:
+                if (
+                    self.rng.random()
+                    >= self.viral_infection_probability * protection[target]
+                ):
                     continue
 
                 art_name = self.infect_agent(
@@ -2429,6 +2480,8 @@ class OpenGridWorld:
                 return TextArtifact.deserialize(data["data"])
             if art_type == "viral":
                 return ViralArtifact.deserialize(data["data"])
+            if art_type == "ppe":
+                return PPEArtifact.deserialize(data["data"])
             return Artifact.deserialize(data["data"])
 
         raise TypeError(f"Type {data['__type__']} not deserializable")

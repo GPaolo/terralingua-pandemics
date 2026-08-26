@@ -129,7 +129,8 @@ class EnvConfig:
         default=None,
         metadata={
             "help": "Path to a JSON file with artifacts seeded by the environment: "
-            "a list of {name, payload, pose, lifespan, step} entries"
+            "a list of {name, type, payload, pose, lifespan, step} entries "
+            "(type: 'text' or 'ppe')"
         },
     )
     init_human_agents: int = field(
@@ -145,6 +146,13 @@ class EnvConfig:
     )
     reproduction_cost: int = field(
         default=50, metadata={"help": "Energy cost to reproduce"}
+    )
+    ppe_protection: float = field(
+        default=0.1,
+        metadata={
+            "help": "Multiplier on the infection probability of an agent carrying "
+            "a PPE artifact (0 = full immunity, 1 = no protection)"
+        },
     )
     static_food: bool = field(
         default=False, metadata={"help": "Food always spawns in same positions"}
@@ -218,6 +226,9 @@ class EnvConfig:
         )
         assert self.viral_energy_multiplier > 0, (
             "viral_energy_multiplier must be positive"
+        )
+        assert 0.0 <= self.ppe_protection <= 1.0, (
+            "ppe_protection must be in [0, 1]"
         )
         assert self.viral_init_infected >= 0, (
             "viral_init_infected cannot be negative"

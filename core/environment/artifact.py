@@ -19,6 +19,8 @@ class Artifact:
     # away or use the actions it offers. Non-interactable artifacts can only
     # be affected by the environment itself.
     interactable = True
+    # Multiplier on the carrier's probability of contracting an infection
+    infection_protection = 1.0
 
     def __init__(
         self,
@@ -223,6 +225,64 @@ class TextArtifact(Artifact):
                 f"Payload exceeds maximum token limit of {MAX_TEXT_ARTIFACT_SIZE} tokens (got {token_count} tokens)",
             )
         return True, ""
+
+
+class PPEArtifact(Artifact):
+    """Personal protective equipment.
+
+    While an agent carries one, its probability of contracting a viral
+    artifact is multiplied by ``infection_protection`` (< 1). Seeded by the
+    environment only — agents cannot create it, but they can pick it up,
+    drop it or give it away, and it drops on the map when its host dies.
+    """
+
+    def __init__(
+        self,
+        name: str = "PPE",
+        payload: str = "Personal protective equipment: Whoever carries it is far less likely to catch infections from others.",
+        lifespan: int | float = -1,
+        pose: Tuple[int, int] = (0, 0),
+        creator: str = "environment",
+        creation_time: int = 0,
+        protection: float = 0.1,
+    ):
+        super().__init__(
+            name=name,
+            payload=payload,
+            lifespan=lifespan,
+            pose=pose,
+            creator=creator,
+            creation_time=creation_time,
+        )
+        self.art_type = "ppe"
+        self.infection_protection = protection
+
+    @property
+    def actions(self):
+        return {}
+
+    def passive_effect(self, timestamp: int, agent_name: str):
+        self.users[agent_name].add(timestamp)
+        return f"Artifact {self.name}: {self.payload}"
+
+    def interact(
+        self, agent_name: str, action: str, params: dict, timestamp: int
+    ) -> str:
+        return f"Artifact {self.name} offers no actions."
+
+    def verify_payload(self, payload) -> Tuple[bool, str]:
+        return True, ""
+
+    def serialize(self) -> dict:
+        serialized = super().serialize()
+        serialized["protection"] = self.infection_protection
+        return serialized
+
+    @classmethod
+    def deserialize(cls, data: dict):
+        artifact = super().deserialize(data)
+        artifact.infection_protection = data.get("protection", 0.1)
+        return artifact
 
 
 class ViralArtifact(Artifact):
