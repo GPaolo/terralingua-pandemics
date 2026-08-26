@@ -77,6 +77,7 @@ async function openRun(name) {
     "only cells somebody has visited.";
   $("#legend-unknown").hidden = state.meta.food_source !== "observed";
   $("#legend-infected").hidden = !state.meta.has_viral;
+  $("#legend-incubating").hidden = !state.meta.has_viral;
 
   setStatus(state.meta.status);
   state.following = state.meta.status === "live";
@@ -180,6 +181,30 @@ function startStream() {
    selection brackets, the trail, the tooltip and the Beings list instead. */
 function agentColor() {
   return cssVar("--s1");
+}
+
+/* Health is the one thing that does move a being off --s1, and it moves along the
+   reserved status ramp rather than into a categorical slot: amber while the
+   infection is still incubating, red once it shows symptoms. Amber sits ~48 dE
+   from the red, where the orange slot sits at 6.8 -- far below the floor of 15 --
+   so the two phases stay distinguishable at small cell sizes. Always paired with
+   a glyph so hue is never the only channel. */
+const HEALTH_GLYPH = { sick: "☣", incubating: "⧖" };
+
+function healthOf(a) {
+  if (!a) return null;
+  // Schema 1 runs have no n_sick column; there, any infection was symptomatic.
+  const nViral = a[5] ?? 0;
+  const nSick = a[6] ?? nViral;
+  if (nSick > 0) return "sick";
+  if (nViral > 0) return "incubating";
+  return null;
+}
+
+function healthColor(health) {
+  if (health === "sick") return cssVar("--status-critical");
+  if (health === "incubating") return cssVar("--status-warning");
+  return agentColor();
 }
 
 function foodColor(v, max) {
@@ -286,10 +311,10 @@ function drawMap() {
      which at mid cell sizes meant the selection ring painted straight over the
      infection ring and a sick being looked healthy the moment you clicked it. */
   for (const [, a] of Object.entries(state.world.agents)) {
-    const [x, y, , , , nViral] = a;
+    const [x, y] = a;
     const cx = y * cell + cell / 2, cy = x * cell + cell / 2;
     const r = Math.max(1.5, cell * 0.36);
-    ctx.fillStyle = nViral > 0 ? cssVar("--status-critical") : agentColor();
+    ctx.fillStyle = healthColor(healthOf(a));
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
 
     // A 2px surface ring keeps overlapping marks legible.
@@ -366,10 +391,10 @@ function drawAgentList() {
     pill.className = "agent-pill" + (tag === state.selected ? " sel" : "");
     pill.style.opacity = here ? 1 : 0.35;
     pill.title = here ? "" : "not present at this step";
-    const sick = here && here[5] > 0;
+    const health = healthOf(here);
     pill.innerHTML =
-      `<span class="chip" style="background:${sick ? cssVar("--status-critical") : agentColor()}"></span>${esc(tag)}` +
-      (sick ? " ☣" : "");
+      `<span class="chip" style="background:${healthColor(health)}"></span>${esc(tag)}` +
+      (health ? ` ${HEALTH_GLYPH[health]}` : "");
     pill.onclick = () => selectAgent(tag);
     box.appendChild(pill);
   }
@@ -383,7 +408,8 @@ function drawAgentDetail() {
     box.innerHTML = `<p class="empty">${tag ? esc(tag) + " is not in the world at this step." : "No being selected."}</p>`;
     return;
   }
-  const [x, y, energy, age, nInv, nViral] = a;
+  const [x, y, energy, age, nInv] = a;
+  const health = healthOf(a);
   const maxAge = state.meta.params?.env?.agent_lifespan || 100;
   const initE = state.meta.params?.env?.init_agent_energy || 100;
   const genome = state.meta.genomes[tag] || {};
@@ -402,9 +428,13 @@ function drawAgentDetail() {
 
   box.innerHTML = `
     <div class="agent-head">
-      <span class="agent-chip" style="background:${nViral > 0 ? cssVar("--status-critical") : agentColor()}"></span>
+      <span class="agent-chip" style="background:${healthColor(health)}"></span>
       <span class="agent-name">${esc(tag)}</span>
-      ${nViral > 0 ? '<span class="badge" style="color:var(--status-critical)">☣ infected</span>' : ""}
+      ${health === "sick"
+        ? '<span class="badge" style="color:var(--status-critical)">☣ sick</span>'
+        : health === "incubating"
+        ? '<span class="badge" style="color:var(--status-warning)">⧖ incubating</span>'
+        : ""}
     </div>
     ${meter("Energy", energy, initE * 2, "--s3", energy == null ? "—" : Math.round(energy))}
     ${age == null
@@ -491,10 +521,16 @@ function drawCharts() {
 
   const pop = [{ name: "beings", points: zip(s.t, s.n_agents), color: cssVar("--s1") }];
   if (state.meta.has_viral) {
-    // Same unit (a count of beings), so both share one axis. Never two scales.
-    // Reserved status red, matching the map, and labelled with the glyph so the
-    // color is never the only thing saying "infected".
-    pop.push({ name: "☣ infected", points: zip(s.t, s.n_infected), color: cssVar("--status-critical") });
+    // Same unit (a count of beings), so all three share one axis. Never two
+    // scales. Reserved status colors, matching the map, each labelled with its
+    // glyph so the color is never the only thing saying which phase it is.
+    // The two infection series are disjoint -- incubating is the carriers that
+    // have not turned yet -- so they read as parts of one population, not as
+    // one line drawn on top of another.
+    const nSick = s.n_sick || s.n_infected;
+    const incubating = s.n_infected.map((n, i) => n - (nSick[i] ?? 0));
+    pop.push({ name: "⧖ incubating", points: zip(s.t, incubating), color: cssVar("--status-warning") });
+    pop.push({ name: "☣ sick", points: zip(s.t, nSick), color: cssVar("--status-critical") });
   }
   box.appendChild(chartCard({ title: "Population", series: pop, format: (v) => v }));
 
@@ -595,7 +631,10 @@ function hookTooltip() {
     if (food) lines.push(`food ${food[2]}`);
     else if (state.meta.food_source === "observed") lines.push("never observed");
     for (const [tag, a] of Object.entries(state.world.agents)) {
-      if (a[0] === x && a[1] === y) lines.push(`${tag}${a[5] > 0 ? " ☣" : ""}  energy ${a[2] ?? "∞"}`);
+      if (a[0] !== x || a[1] !== y) continue;
+      // Plain text tooltip, so the glyph is the only channel available here.
+      const health = healthOf(a);
+      lines.push(`${tag}${health ? ` ${HEALTH_GLYPH[health]}` : ""}  energy ${a[2] ?? "∞"}`);
     }
     for (const [ax, ay, name] of state.world.artifacts) {
       if (ax === x && ay === y) lines.push(`◆ ${name}`);

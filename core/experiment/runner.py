@@ -100,6 +100,8 @@ class SimulationRunner:
             viral_init_infected=self.params.env.viral_init_infected,
             viral_outbreak_step=self.params.env.viral_outbreak_step,
             viral_lifespan=self.params.env.viral_lifespan,
+            viral_incubation_min=self.params.env.viral_incubation_min,
+            viral_incubation_max=self.params.env.viral_incubation_max,
             viral_dropped_lifespan=self.params.env.viral_dropped_lifespan,
             viral_infection_radius=self.params.env.viral_infection_radius,
             viral_infection_probability=self.params.env.viral_infection_probability,

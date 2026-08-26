@@ -235,6 +235,13 @@ class ViralArtifact(Artifact):
     infection ends when the artifact's lifespan runs out. When its host dies,
     it is dropped on the map for a set amount of time, during which it keeps
     spreading to nearby agents.
+
+    An infection has two phases. While ``incubation`` steps remain the host is
+    a silent carrier: it behaves normally, pays no extra energy and infects
+    nobody. Once the countdown reaches zero the artifact is ``symptomatic`` and
+    everything above applies. ``lifespan`` measures the symptomatic period
+    only — ``remaining_time`` does not tick while the artifact is incubating —
+    so the infectious window is the same length whatever the latency was.
     """
 
     interactable = False
@@ -247,6 +254,7 @@ class ViralArtifact(Artifact):
         creator: str,
         creation_time: int,
         strain: str | None = None,
+        incubation: int = 0,
         payload: Any = "",  # ignored, viral artifacts have no content
     ):
         super().__init__(
@@ -261,6 +269,13 @@ class ViralArtifact(Artifact):
         # Name of the strain this artifact belongs to. Copies keep the strain
         # of their source, so an agent cannot host the same strain twice.
         self.strain = strain if strain is not None else name
+        # Steps left before the host develops symptoms. 0 means symptomatic now.
+        self.incubation = incubation
+
+    @property
+    def symptomatic(self) -> bool:
+        """Whether the infection has run its incubation and shows symptoms."""
+        return self.incubation <= 0
 
     @property
     def actions(self):
@@ -280,8 +295,14 @@ class ViralArtifact(Artifact):
         # Viral artifacts carry no content
         return True, ""
 
-    def spawn_copy(self, name: str, pose: Tuple[int, int], timestamp: int):
-        """Creates the copy of this artifact that infects a new host."""
+    def spawn_copy(
+        self, name: str, pose: Tuple[int, int], timestamp: int, incubation: int = 0
+    ):
+        """Creates the copy of this artifact that infects a new host.
+
+        The copy draws its own incubation rather than inheriting the source's:
+        how long the last host took to fall ill says nothing about this one.
+        """
         return ViralArtifact(
             name=name,
             lifespan=self.lifespan,
@@ -289,15 +310,20 @@ class ViralArtifact(Artifact):
             creator=self.creator,
             creation_time=timestamp,
             strain=self.strain,
+            incubation=incubation,
         )
 
     def serialize(self) -> dict:
         serialized = super().serialize()
         serialized["strain"] = self.strain
+        serialized["incubation"] = self.incubation
         return serialized
 
     @classmethod
     def deserialize(cls, data: dict):
         artifact = super().deserialize(data)
         artifact.strain = data.get("strain", artifact.name)
+        # Runs predating the incubation phase have none: they were symptomatic
+        # from the moment they were created.
+        artifact.incubation = data.get("incubation", 0)
         return artifact

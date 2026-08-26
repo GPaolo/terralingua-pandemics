@@ -402,7 +402,10 @@ class _Reconstruction:
                         if t < len(series)
                         else (series[-1] if series else (None, None))
                     )
-                    agents[tag] = [row, col, e_t[0], e_t[1], 0, 0]
+                    # n_inv / n_viral / n_sick: the agent logs carry no
+                    # inventory or infection state, so a reconstruction always
+                    # reports zero. The UI flags the run as reconstructed.
+                    agents[tag] = [row, col, e_t[0], e_t[1], 0, 0, 0]
 
                 food = food_by_tick[t] if t < len(food_by_tick) else {}
                 arts = set(artifacts.get(t, []))
@@ -440,6 +443,7 @@ class _Reconstruction:
                             ),
                             "n_agents": len(agents),
                             "n_infected": 0,
+                            "n_sick": 0,
                         }
                     )
                     + "\n"

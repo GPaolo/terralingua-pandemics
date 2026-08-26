@@ -223,6 +223,7 @@ footer.charts {
 /* Beings are discs on the map, so their keys are round rather than square. */
 .swatch.being { background: var(--s1); border-radius: 50%; }
 .swatch.infected { background: var(--status-critical); border-radius: 50%; }
+.swatch.incubating { background: var(--status-warning); border-radius: 50%; }
 
 #tooltip {
   position: absolute;
