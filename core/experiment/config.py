@@ -185,6 +185,13 @@ class EnvConfig:
     static_food: bool = field(
         default=False, metadata={"help": "Food always spawns in same positions"}
     )
+    funeral_announcements: bool = field(
+        default=False,
+        metadata={
+            "help": "Announce deaths that leave remains to every living being, "
+            "with directions, so gathering at the corpse is a choice"
+        },
+    )
     viral_contact_multiplier: float = field(
         default=1.0,
         metadata={

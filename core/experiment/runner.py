@@ -165,6 +165,7 @@ class SimulationRunner:
             ppe_protection=self.params.env.ppe_protection,
             burials=self.params.env.burials,
             burial_infection_multiplier=self.params.env.burial_infection_multiplier,
+            funeral_announcements=self.params.env.funeral_announcements,
             max_message_size=self.params.env.max_message_size,
             max_text_artifact_size=self.params.env.max_text_artifact_size,
             init_artifacts=self.params.env.init_artifacts,

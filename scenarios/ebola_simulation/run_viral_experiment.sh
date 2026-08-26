@@ -90,4 +90,5 @@ python main.py \
     --viral_death_probability 0.11 `# hazard ramps 0 -> this over the 12 sick days; 1-prod(1-0.11*t/12) ~= 50% CFR from the roll alone, ~70% combined with the energy drain above (untreated Zaire ebolavirus)` \
     --ppe_protection        0.1 `# multiplier on the infection probability of a being carrying PPE (0: immune, 1: no protection)` \
     --burials `# beings next to remains (a dropped viral artifact) can bury them, removing the artifact from the ground` \
+    --funeral_announcements `# a death that leaves remains is announced to every being, with directions: gathering to mourn (a funeral) is each being's own choice, with the exposure that implies` \
     --burial_infection_multiplier 2.5 `# burying scales the burier's infection probability by this factor for that exposure (PPE still applies). Viral load peaks at death: corpses were the most infectious contacts of the 2014-16 outbreak`

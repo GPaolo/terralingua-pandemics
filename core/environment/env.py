@@ -4,7 +4,6 @@ import json
 import pickle
 from collections import defaultdict
 from copy import deepcopy
-from itertools import chain
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
@@ -106,6 +105,7 @@ class OpenGridWorld:
         ppe_protection: float = 0.1,
         burials: bool = False,
         burial_infection_multiplier: float = 2.0,
+        funeral_announcements: bool = False,
         max_message_size: int = -1,  # tokens per message; -1: unlimited
         max_text_artifact_size: int = MAX_TEXT_ARTIFACT_SIZE,  # tokens per text artifact
         init_artifacts: str | Path | List[dict] | None = None,
@@ -162,6 +162,11 @@ class OpenGridWorld:
         # contact risk of catching the infection themselves
         self.burials = burials
         self.burial_infection_multiplier = burial_infection_multiplier
+        # A death that drops remains is announced to every living being, with
+        # directions, so gathering to mourn (or bury) is a choice each being
+        # makes — and the exposure that follows is self-inflicted
+        self.funeral_announcements = funeral_announcements
+        self._pending_funerals: List[Tuple[str, Tuple[int, int], str]] = []
         self.max_message_size = max_message_size
         self.max_text_artifact_size = max_text_artifact_size
         self._token_encoder = None  # lazy: only needed when messages are capped
@@ -539,6 +544,7 @@ class OpenGridWorld:
         self.food_count = []
         self.agent_inventories = defaultdict(set)
         self.agent_recoveries = defaultdict(int)
+        self._pending_funerals = []
         self.artifacts_map = defaultdict(set)
         self.artifacts = {}
         self.expired_artifacts = []
@@ -1526,6 +1532,22 @@ class OpenGridWorld:
             done_dict[a] = True
             rewards[a] -= 100
 
+        # Funerals: deaths that left remains are announced to every living
+        # being, with directions. Whether to gather — and risk the corpse —
+        # is each being's own call.
+        if self._pending_funerals:
+            for tag in self.agent_registry:
+                notes = []
+                for name, pos, reason in self._pending_funerals:
+                    cause = " of the sickness" if reason == "sickness" else ""
+                    notes.append(
+                        f"{name} has died{cause}. Word spreads that their "
+                        f"remains lie unburied "
+                        f"{self._compass_offset(self.agent_pos[tag], pos)}."
+                    )
+                infos.setdefault(tag, {})["Deaths"] = " ".join(notes)
+            self._pending_funerals = []
+
         # ---- handle food ----
         if self.food_mechanism:
             self._decay_and_respawn_food()
@@ -1867,6 +1889,7 @@ class OpenGridWorld:
         self.msg_raw.pop(agent, None)
         self.agent_recoveries.pop(agent, None)
         pos = self.agent_pos.pop(agent, None)
+        dropped_remains = False
         if pos is not None:
             # Artifacts are dropped at agent's death position
             artifacts = self.agent_inventories.pop(agent, None)
@@ -1890,6 +1913,7 @@ class OpenGridWorld:
                         # Present as the corpse it is; the internal name stays
                         # so transmission chains keyed on it survive.
                         artifact.display_name = f"remains_of_{self.agent_names[agent]}"
+                        dropped_remains = True
                     if art_name not in self.artifacts_map[pos]:
                         self.artifacts_map[pos].add(art_name)
                     else:
@@ -1919,6 +1943,9 @@ class OpenGridWorld:
                                 self.food[food_pos] = self._max_food_value
             elif self.dead_agent_food == "none":
                 pass
+
+        if dropped_remains and self.funeral_announcements:
+            self._pending_funerals.append((self.agent_names[agent], pos, reason))
 
         if self.logger:
             self.logger.log(
@@ -2176,6 +2203,26 @@ class OpenGridWorld:
         dx = abs(pos_a[0] - pos_b[0])
         dy = abs(pos_a[1] - pos_b[1])
         return max(min(dx, self.grid_size - dx), min(dy, self.grid_size - dy))
+
+    def _compass_offset(self, from_pos, to_pos) -> str:
+        """Shortest offset on the torus, in the words agents move by.
+
+        "3 cells up, 2 cells right" is directly actionable: up/down/left/right
+        are exactly the MOVE_DICT directions, so a being can follow it.
+        """
+
+        def shortest(d: int) -> int:
+            d %= self.grid_size
+            return d - self.grid_size if d > self.grid_size // 2 else d
+
+        dr = shortest(to_pos[0] - from_pos[0])
+        dc = shortest(to_pos[1] - from_pos[1])
+        parts = []
+        if dr:
+            parts.append(f"{abs(dr)} cell{'s' if abs(dr) != 1 else ''} {'down' if dr > 0 else 'up'}")
+        if dc:
+            parts.append(f"{abs(dc)} cell{'s' if abs(dc) != 1 else ''} {'right' if dc > 0 else 'left'}")
+        return ", ".join(parts) if parts else "on your own cell"
 
     def _load_init_artifacts(
         self, init_artifacts: str | Path | List[dict] | None
