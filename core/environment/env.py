@@ -380,6 +380,7 @@ class OpenGridWorld:
                 lifespan=lifespan,
                 creation_time=self.step_count,
                 heal_probability=params.get("heal_probability", 0.2),
+                hazard_multiplier=params.get("hazard_multiplier", 1.0),
                 radius=params.get("radius", 1),
                 **({"payload": payload} if payload else {}),
             )
@@ -2156,6 +2157,8 @@ class OpenGridWorld:
         Zero at symptom onset, ramping linearly to viral_death_probability at
         the end of the infectious window (constant at the maximum when
         viral_lifespan is -1, since there is no window to ramp over).
+        Supportive care scales it down: a sick agent within reach of a health
+        center dies at that center's hazard_multiplier x the usual rate.
         """
         frac = 0.0
         for name in self.agent_inventories[agent_tag]:
@@ -2168,7 +2171,28 @@ class OpenGridWorld:
                 frac = max(
                     frac, 1.0 - max(artifact.remaining_time, 0) / artifact.lifespan
                 )
-        return self.viral_death_probability * frac
+        if frac == 0.0:
+            return 0.0
+        return (
+            self.viral_death_probability * frac * self._care_hazard_multiplier(agent_tag)
+        )
+
+    def _care_hazard_multiplier(self, agent_tag: str) -> float:
+        """Multiplier on the death hazard from supportive care.
+
+        The best (lowest) hazard_multiplier of the health centers within
+        reach wins; several centers do not stack, same rule as PPE.
+        """
+        return min(
+            (
+                a.hazard_multiplier
+                for a in self.artifacts.values()
+                if isinstance(a, HealthCenterArtifact)
+                and self._toroidal_distance(a.pose, self.agent_pos[agent_tag])
+                <= a.radius
+            ),
+            default=1.0,
+        )
 
     def _infection_protection(self, agent_tag: str) -> float:
         """Multiplier on the agent's probability of contracting an infection.
@@ -2305,16 +2329,25 @@ class OpenGridWorld:
                         "fixed to the map; use pose, not agent or role"
                     )
                 heal_probability = float(entry.get("heal_probability", 0.2))
+                hazard_multiplier = float(entry.get("hazard_multiplier", 1.0))
                 radius = int(entry.get("radius", 1))
                 if not 0.0 <= heal_probability <= 1.0:
                     raise ValueError(
                         f"init_artifacts[{i}] ({entry['name']}): heal_probability must be in [0, 1]"
                     )
+                if not 0.0 <= hazard_multiplier <= 1.0:
+                    raise ValueError(
+                        f"init_artifacts[{i}] ({entry['name']}): hazard_multiplier must be in [0, 1]"
+                    )
                 if radius < 0:
                     raise ValueError(
                         f"init_artifacts[{i}] ({entry['name']}): radius cannot be negative"
                     )
-                extra = {"heal_probability": heal_probability, "radius": radius}
+                extra = {
+                    "heal_probability": heal_probability,
+                    "hazard_multiplier": hazard_multiplier,
+                    "radius": radius,
+                }
             validated.append(
                 {
                     "name": str(entry["name"]),
@@ -2375,7 +2408,9 @@ class OpenGridWorld:
 
             lifespan = np.inf if entry["lifespan"] == -1 else entry["lifespan"]
             params = {
-                k: entry[k] for k in ("heal_probability", "radius") if k in entry
+                k: entry[k]
+                for k in ("heal_probability", "hazard_multiplier", "radius")
+                if k in entry
             } or None
             for to_inventory in targets:
                 if to_inventory is not None:

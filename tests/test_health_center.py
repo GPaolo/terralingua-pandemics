@@ -154,7 +154,10 @@ def test_radius_is_configurable():
 def test_checkpoint_roundtrip():
     tmp = Path(tempfile.mkdtemp())
     env = make_env(
-        tmp, init_artifacts=[{**CENTER, "heal_probability": 0.4, "radius": 3}]
+        tmp,
+        init_artifacts=[
+            {**CENTER, "heal_probability": 0.4, "hazard_multiplier": 0.5, "radius": 3}
+        ],
     )
     env.add_agent(agent_tag="a", agent_name="a", agent_type="text")
     env.restart_env(agent_poses={"a": (5, 5)})
@@ -165,8 +168,45 @@ def test_checkpoint_roundtrip():
     restored = env2.artifacts["health_center"]
     assert isinstance(restored, HealthCenterArtifact)
     assert restored.heal_probability == 0.4
+    assert restored.hazard_multiplier == 0.5
     assert restored.radius == 3
     print("PASS: health center survives a checkpoint roundtrip")
+
+
+def test_supportive_care_scales_the_death_hazard():
+    """Care is not a cure: it multiplies the death roll, inside reach only."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        init_artifacts=[
+            {**CENTER, "heal_probability": 0.0, "hazard_multiplier": 0.5}
+        ],
+        viral_lifespan=10,
+        viral_death_probability=0.4,
+    )
+    for tag in ("a", "b"):
+        env.add_agent(agent_tag=tag, agent_name=tag, agent_type="text")
+    # a inside the center's radius, b far away
+    env.restart_env(agent_poses={"a": (5, 6), "b": (15, 15)})
+    for tag in ("a", "b"):
+        env.infect_agent(agent_tag=tag)
+        env.artifacts[
+            [n for n in env.agent_inventories[tag]][0]
+        ].remaining_time = 5  # halfway through: frac = 0.5
+
+    inside = env._death_hazard("a")
+    outside = env._death_hazard("b")
+    assert outside == 0.4 * 0.5, outside
+    assert inside == 0.4 * 0.5 * 0.5, inside
+
+    # heal_probability 0.0: the infection is never cured by the center
+    for _ in range(3):
+        step_all(env)
+    assert any(
+        isinstance(env.artifacts.get(n), ViralArtifact)
+        for n in env.agent_inventories.get("a", ())
+    ) or "a" not in env.agent_registry, "care must not cure"
+    print("PASS: supportive care halves the death hazard without curing")
 
 
 if __name__ == "__main__":
@@ -177,4 +217,5 @@ if __name__ == "__main__":
     test_everyone_in_radius_reads_the_payload()
     test_radius_is_configurable()
     test_checkpoint_roundtrip()
+    test_supportive_care_scales_the_death_hazard()
     print("\nAll health center checks passed ✅")

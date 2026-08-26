@@ -1,6 +1,6 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections import defaultdict
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, Set, Tuple
 
 import numpy as np
 import tiktoken
@@ -310,9 +310,11 @@ class HealthCenterArtifact(Artifact):
     """A fixed treatment site on the grid.
 
     Immovable: agents cannot pick it up, drop it, give it away or act on it.
-    Always active: every infected agent within ``radius`` cells (Chebyshev;
-    the default 1 covers its cell plus the 8 around it) has a per-step
-    ``heal_probability`` of losing its viral artifacts.
+    Always active within ``radius`` cells (Chebyshev; the default 1 covers its
+    cell plus the 8 around it): every infected agent there has a per-step
+    ``heal_probability`` of losing its viral artifacts, and every sick one
+    dies at ``hazard_multiplier`` x the usual hazard — supportive care, which
+    improves the odds of surviving the illness rather than curing it.
     """
 
     interactable = False
@@ -320,12 +322,13 @@ class HealthCenterArtifact(Artifact):
     def __init__(
         self,
         name: str,
-        payload: str = "A health center. Infected beings near it have a chance to recover from the sickness each day.",
+        payload: str = "A health center. Sick beings near it receive care: they are more likely to survive the sickness.",
         lifespan: int | float = -1,
         pose: Tuple[int, int] = (0, 0),
         creator: str = "environment",
         creation_time: int = 0,
         heal_probability: float = 0.2,
+        hazard_multiplier: float = 1.0,
         radius: int = 1,
     ):
         super().__init__(
@@ -338,6 +341,7 @@ class HealthCenterArtifact(Artifact):
         )
         self.art_type = "health_center"
         self.heal_probability = float(heal_probability)
+        self.hazard_multiplier = float(hazard_multiplier)
         self.radius = int(radius)
 
     @property
@@ -359,6 +363,7 @@ class HealthCenterArtifact(Artifact):
     def serialize(self) -> dict:
         serialized = super().serialize()
         serialized["heal_probability"] = self.heal_probability
+        serialized["hazard_multiplier"] = self.hazard_multiplier
         serialized["radius"] = self.radius
         return serialized
 
@@ -366,6 +371,7 @@ class HealthCenterArtifact(Artifact):
     def deserialize(cls, data: dict):
         artifact = super().deserialize(data)
         artifact.heal_probability = float(data.get("heal_probability", 0.2))
+        artifact.hazard_multiplier = float(data.get("hazard_multiplier", 1.0))
         artifact.radius = int(data.get("radius", 1))
         return artifact
 

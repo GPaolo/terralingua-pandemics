@@ -2,11 +2,13 @@
     {
         "name": "Health Center",
         "type": "health_center",
+        "payload": "A health center. Sick beings near it receive supportive care: they are far more likely to survive the sickness, but it does not cure — recovery still takes its time.",
         "pose": [
             25,
             25
         ],
-        "heal_probability": 0.2,
+        "heal_probability": 0.0,
+        "hazard_multiplier": 0.5,
         "radius": 1,
         "lifespan": -1,
         "step": 0
