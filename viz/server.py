@@ -168,7 +168,7 @@ def create_app(logs_root: Path) -> FastAPI:
         reader = get_reader(name)
         infections = reader.events(["VIRAL_INFECTION"])
         removed = {
-            e["artifact"]["name"]
+            e["artifact"]["name"]: e.get("timestamp")
             for e in reader.events(["ARTIFACT_REMOVED"])
             if isinstance(e.get("artifact"), dict)
             and e["artifact"].get("art_type") == "viral"
@@ -217,9 +217,10 @@ def create_app(logs_root: Path) -> FastAPI:
                     "t": infected_at[art],
                     "generation": generation(art),
                     "secondary": secondary.get(art, 0),
-                    # False = the episode was still running when the log ends,
-                    # so its secondary count is a lower bound.
-                    "ended": art in removed,
+                    # None = the episode was still running when the log ends,
+                    # so its secondary count is a lower bound. The timestamp
+                    # lets the client census the epidemic as of any step.
+                    "ended_at": removed.get(art),
                 }
                 for art in source_of
             ],
@@ -240,13 +241,18 @@ def create_app(logs_root: Path) -> FastAPI:
                 latest = reader.last_step
                 if latest > last:
                     idle = 0
+                    meta = reader.meta()
                     payload = {
                         "last_step": latest,
                         # The world log is written after the step, so it runs one
                         # ahead of the decisions that produced it. A live viewer
                         # wants the newest frame where the map, the chat and the
                         # agents' reasoning all describe the same instant.
-                        "last_decision_step": reader.meta()["last_decision_step"],
+                        "last_decision_step": meta["last_decision_step"],
+                        # An outbreak can start after the viewer opened the run;
+                        # without this the client's has_viral stays stale and the
+                        # transmission panel never appears.
+                        "has_viral": meta["has_viral"],
                         "status": reader.status(),
                         "series": reader.series(),
                     }

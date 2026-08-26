@@ -185,7 +185,9 @@ class RunReader:
         """
         import time
 
-        if any(e.get("event") == "END_RUN" for e in self._events):
+        # Current-run events only: a re-run under the same name would otherwise
+        # inherit the previous run's END_RUN and report "finished" while live.
+        if any(e.get("event") == "END_RUN" for e in self._current_run_events()):
             return "finished"
 
         newest = 0.0
@@ -246,7 +248,8 @@ class RunReader:
             "agents": tags,
             "genomes": self._genomes,
             "has_viral": any(
-                e.get("event") == "VIRAL_INFECTION" for e in self._events
+                e.get("event") == "VIRAL_INFECTION"
+                for e in self._current_run_events()
             ),
             "params": params,
         }
@@ -349,16 +352,45 @@ class RunReader:
         out.sort(key=lambda m: (m["t"], m["agent_tag"]))
         return out
 
+    def _current_run_events(self) -> List[dict]:
+        """Events belonging to the current run only.
+
+        Every logger appends, so re-running an ``exp_name`` leaves the previous
+        run's events in front of the current ones — stale infections, artifacts
+        and even an old END_RUN. A fresh start is an ENV_RESET *not* immediately
+        followed by SET_STATE_CKPT (that pair is a ``--resume``, which continues
+        the same run and must keep its history). The run's preamble — agents and
+        init artifacts are logged at step 0 *before* the reset — is kept by
+        walking back over the timestamp-0 events in front of it.
+        """
+        start = 0
+        for i, e in enumerate(self._events):
+            if e.get("event") != "ENV_RESET":
+                continue
+            nxt = self._events[i + 1] if i + 1 < len(self._events) else None
+            if nxt is not None and nxt.get("event") == "SET_STATE_CKPT":
+                continue
+            j = i
+            while (
+                j > 0
+                and self._events[j - 1].get("timestamp") == 0
+                and self._events[j - 1].get("event") != "ENV_RESET"
+            ):
+                j -= 1
+            start = j
+        return self._events[start:]
+
     def events(self, types: Optional[List[str]] = None) -> List[dict]:
+        current = self._current_run_events()
         if types is None:
-            return list(self._events)
+            return list(current)
         wanted = set(types)
-        return [e for e in self._events if e.get("event") in wanted]
+        return [e for e in current if e.get("event") in wanted]
 
     def artifacts(self) -> List[dict]:
         """Artifacts with their edit history, rebuilt from the event stream."""
         by_name: Dict[str, dict] = {}
-        for e in self._events:
+        for e in self._current_run_events():
             art = e.get("artifact")
             if not isinstance(art, dict) or "name" not in art:
                 continue

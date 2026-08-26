@@ -170,11 +170,24 @@ function startStream() {
     $("#scrub").max = msg.last_step;
     if (msg.status) { state.meta.status = msg.status; setStatus(msg.status); }
     if (msg.series) { state.series = { ...state.series, ...msg.series }; drawCharts(); }
-    // Artifact edits are not in the SSE payload; refetch when the run advances.
+    // An outbreak can start mid-run: unhide the infection legend and start
+    // fetching viral data the moment the stream first reports it.
+    if (msg.has_viral && !state.meta.has_viral) {
+      state.meta.has_viral = true;
+      $("#legend-infected").hidden = false;
+      $("#legend-incubating").hidden = false;
+    }
+    // Artifact edits and new infections are not in the SSE payload; refetch
+    // when the run advances so neither panel freezes at page-load state.
     if (msg.series) {
       api(`/api/runs/${state.run}/artifacts`)
         .then((d) => { state.artifacts = d.artifacts; drawArtifacts(); })
         .catch(() => {});
+      if (state.meta.has_viral) {
+        api(`/api/runs/${state.run}/viral`)
+          .then((d) => { state.viral = d; drawCharts(); })
+          .catch(() => {});
+      }
     }
     // Follow the live edge until the viewer scrubs away. Comparing the current
     // step against the newest one is not enough: the world log runs a step ahead
@@ -644,9 +657,7 @@ function drawCharts() {
     format: (v) => v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "k" : v,
   }));
 
-  // The chain can be non-empty while every episode is still censored (no
-  // completed generations yet), and the panel is the only door to it.
-  if (state.viral?.generations?.length || state.viral?.chain?.length) {
+  if (state.viral?.chain?.length) {
     box.appendChild(r0Card(state.viral));
   }
 }
@@ -690,21 +701,42 @@ function chartCard({ title, series, format, step }) {
   return card;
 }
 
+/* Step-aware like every other card: the numbers are a census of the epidemic
+   as of the scrubbed step, recomputed from the chain. An episode only counts
+   toward R once it is over (it can still spread until then), matching the
+   server's whole-run generations at the final step. */
 function r0Card(viral) {
   const card = document.createElement("section");
   card.className = "panel chart";
-  const rows = viral.generations.map((g) => `
-    <div class="stat-row"><span>gen ${g.generation} · ${g.cases} case${g.cases === 1 ? "" : "s"}</span>
-    <b>R = ${g.mean_secondary.toFixed(2)}</b></div>`).join("");
+  const started = (viral.chain || []).filter((c) => c.t <= state.step);
+  const kids = new Map();
+  for (const c of started) {
+    if (c.source) kids.set(c.source, (kids.get(c.source) || 0) + 1);
+  }
+  const done = started.filter((c) => c.ended_at != null && c.ended_at <= state.step);
+  const byGen = new Map();
+  for (const c of done) {
+    if (!byGen.has(c.generation)) byGen.set(c.generation, []);
+    byGen.get(c.generation).push(kids.get(c.artifact) || 0);
+  }
+  const mean = (v) => v.reduce((s, x) => s + x, 0) / v.length;
+  const rows = [...byGen.entries()].sort((a, b) => a[0] - b[0]).map(([g, v]) => `
+    <div class="stat-row"><span>gen ${g} · ${v.length} case${v.length === 1 ? "" : "s"}</span>
+    <b>R = ${mean(v).toFixed(2)}</b></div>`).join("");
+  const early = [...(byGen.get(0) || []), ...(byGen.get(1) || [])];
+  const r0 = early.length ? mean(early) : null;
+  const active = started.length - done.length;
+
   card.innerHTML = `
     <h2>☣ Transmission
-      ${viral.chain?.length ? '<button id="chain-btn" style="float:right;padding:1px 7px;font-size:11px">chain</button>' : ""}
+      <button id="chain-btn" style="float:right;padding:1px 7px;font-size:11px">chain</button>
     </h2>
-    <div class="hero">${viral.r0 == null ? "—" : viral.r0.toFixed(2)} <small>R₀ (generations 0–1)</small></div>
-    ${rows}
-    ${viral.censored ? `<div class="subtitle">${viral.censored} still infectious, excluded</div>` : ""}`;
-  const btn = card.querySelector("#chain-btn");
-  if (btn) btn.onclick = showChain;
+    <div class="hero">${r0 == null ? "—" : r0.toFixed(2)} <small>R₀ (gen 0–1) at step ${state.step}</small></div>
+    ${started.length
+      ? `<div class="gen-rows">${rows}</div>
+         ${active ? `<div class="subtitle">${active} still active, not yet counted</div>` : ""}`
+      : `<div class="subtitle">no infections yet at this step</div>`}`;
+  card.querySelector("#chain-btn").onclick = showChain;
   return card;
 }
 
@@ -732,7 +764,7 @@ function showChain() {
       <span class="who" style="color:${agentColor()}" data-tag="${esc(c.host)}">${esc(c.host)}</span>
       <span class="subtitle">step ${c.t} · ${esc(c.artifact)}` +
         `${c.secondary ? ` · spread to ${c.secondary}` : ""}` +
-        `${c.ended === false ? " · ongoing" : ""}</span>
+        `${c.ended_at == null ? " · ongoing" : ""}</span>
     </div>` +
     (kids.get(c.artifact) || []).sort(byT).map((k) => node(k, depth + 1)).join("");
   $("#chain-full").innerHTML =
