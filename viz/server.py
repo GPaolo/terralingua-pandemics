@@ -217,6 +217,9 @@ def create_app(logs_root: Path) -> FastAPI:
                     "t": infected_at[art],
                     "generation": generation(art),
                     "secondary": secondary.get(art, 0),
+                    # False = the episode was still running when the log ends,
+                    # so its secondary count is a lower bound.
+                    "ended": art in removed,
                 }
                 for art in source_of
             ],

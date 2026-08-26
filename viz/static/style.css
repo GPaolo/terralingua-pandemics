@@ -226,6 +226,9 @@ footer.charts {
 .swatch.infected { background: var(--status-critical); border-radius: 50%; }
 .swatch.incubating { background: var(--status-warning); border-radius: 50%; }
 
+/* Pointer events stay off while the tooltip follows the mouse -- it would
+   flicker by capturing its own hover. Pinning (a cell click) turns them on so
+   the names inside become click targets. */
 #tooltip {
   position: absolute;
   pointer-events: none;
@@ -240,6 +243,9 @@ footer.charts {
   transition: opacity 0.1s;
   z-index: 5;
 }
+#tooltip.pinned { pointer-events: auto; border-color: var(--ink-muted); }
+#tooltip .tip-link { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+#tooltip .tip-link:hover { color: var(--ink); }
 
 /* ---------- agent inspector ---------- */
 
@@ -362,6 +368,14 @@ footer.charts {
 .axis-line { stroke: var(--axis); stroke-width: 1; }
 .axis-text { fill: var(--ink-muted); font-size: 10px; }
 .cursor-line { stroke: var(--ink-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+
+/* ---------- transmission chain ---------- */
+
+.chain-node { padding: 3px 0; font-size: 12.5px; }
+.chain-node .who { font-weight: 600; cursor: pointer; }
+/* Dimmed, not hidden: the epidemic's final shape stays visible while the
+   scrub position marks how far it has actually gotten. */
+.chain-node.future { opacity: 0.4; }
 
 /* ---------- run picker ---------- */
 

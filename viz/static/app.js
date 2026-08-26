@@ -24,6 +24,8 @@ const state = {
   artifacts: null,
   // Names of artifact entries the viewer has expanded; survives re-renders.
   openArtifacts: new Set(),
+  // A clicked cell pins the map tooltip so its contents can be clicked.
+  tipPinned: false,
   stream: null,
   trail: null,
   // While true, new steps from the live stream pull the view forward.
@@ -111,6 +113,8 @@ const TRAIL_STEPS = 40;
 
 async function goto(t) {
   t = Math.max(0, Math.min(t, state.meta.last_step));
+  // A pinned tooltip describes one instant; it must not survive into another.
+  if (t !== state.step) unpinTooltip();
   state.step = t;
   try {
     state.world = await fetchStep(t);
@@ -640,7 +644,9 @@ function drawCharts() {
     format: (v) => v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "k" : v,
   }));
 
-  if (state.viral?.generations?.length) {
+  // The chain can be non-empty while every episode is still censored (no
+  // completed generations yet), and the panel is the only door to it.
+  if (state.viral?.generations?.length || state.viral?.chain?.length) {
     box.appendChild(r0Card(state.viral));
   }
 }
@@ -691,11 +697,54 @@ function r0Card(viral) {
     <div class="stat-row"><span>gen ${g.generation} · ${g.cases} case${g.cases === 1 ? "" : "s"}</span>
     <b>R = ${g.mean_secondary.toFixed(2)}</b></div>`).join("");
   card.innerHTML = `
-    <h2>☣ Transmission</h2>
+    <h2>☣ Transmission
+      ${viral.chain?.length ? '<button id="chain-btn" style="float:right;padding:1px 7px;font-size:11px">chain</button>' : ""}
+    </h2>
     <div class="hero">${viral.r0 == null ? "—" : viral.r0.toFixed(2)} <small>R₀ (generations 0–1)</small></div>
     ${rows}
     ${viral.censored ? `<div class="subtitle">${viral.censored} still infectious, excluded</div>` : ""}`;
+  const btn = card.querySelector("#chain-btn");
+  if (btn) btn.onclick = showChain;
   return card;
+}
+
+/* Who infected whom, as an indented tree: seeded infections at the root, each
+   infection's secondary cases nested under it. Whole-run history like the
+   whole-run chat; entries past the scrubbed step are dimmed rather than hidden
+   so the shape of the epidemic stays readable. */
+function showChain() {
+  const chain = state.viral?.chain || [];
+  const kids = new Map();
+  const roots = [];
+  for (const c of chain) {
+    if (c.source && chain.some((p) => p.artifact === c.source)) {
+      if (!kids.has(c.source)) kids.set(c.source, []);
+      kids.get(c.source).push(c);
+    } else {
+      roots.push(c);
+    }
+  }
+  const byT = (a, b) => (a.t ?? 0) - (b.t ?? 0);
+  const node = (c, depth) => `
+    <div class="chain-node${c.t > state.step ? " future" : ""}" style="margin-left:${depth * 18}px">
+      ${depth ? '<span class="subtitle">↳</span>' : ""}
+      <span style="color:var(--status-critical)">☣</span>
+      <span class="who" style="color:${agentColor()}" data-tag="${esc(c.host)}">${esc(c.host)}</span>
+      <span class="subtitle">step ${c.t} · ${esc(c.artifact)}` +
+        `${c.secondary ? ` · spread to ${c.secondary}` : ""}` +
+        `${c.ended === false ? " · ongoing" : ""}</span>
+    </div>` +
+    (kids.get(c.artifact) || []).sort(byT).map((k) => node(k, depth + 1)).join("");
+  $("#chain-full").innerHTML =
+    roots.sort(byT).map((r) => node(r, 0)).join("") ||
+    '<p class="empty">No infections recorded.</p>';
+  $("#chain-full").querySelectorAll(".who").forEach((el) => {
+    el.onclick = () => {
+      $("#chain-overlay").classList.add("hidden");
+      selectAgent(el.dataset.tag);
+    };
+  });
+  $("#chain-overlay").classList.remove("hidden");
 }
 
 /* ---------------- misc ---------------- */
@@ -705,49 +754,96 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+/* One HTML builder for both tooltip modes: hover preview and the pinned,
+   clickable version. Being and artifact names carry data attributes so the
+   pinned tooltip can wire them to selection / the artifacts panel. */
+function tooltipHtml(x, y) {
+  let html = `<div>${x}:${y}</div>`;
+  let clickable = 0;
+  const food = state.world.food.find((f) => f[0] === x && f[1] === y);
+  if (food) html += `<div>food ${food[2]}</div>`;
+  else if (state.meta.food_source === "observed") html += "<div>never observed</div>";
+  for (const [tag, a] of Object.entries(state.world.agents)) {
+    if (a[0] !== x || a[1] !== y) continue;
+    // Plain text tooltip, so the glyph is the only channel available here.
+    const health = healthOf(a);
+    html += `<div><span class="tip-link" data-tag="${esc(tag)}">${esc(tag)}</span>` +
+      `${health ? ` ${HEALTH_GLYPH[health]}` : ""}  energy ${a[2] ?? "∞"}</div>`;
+    clickable++;
+  }
+  for (const [ax, ay, name] of state.world.artifacts) {
+    if (ax !== x || ay !== y) continue;
+    html += `<div>◆ <span class="tip-link" data-art="${esc(name)}">${esc(name)}</span></div>`;
+    clickable++;
+  }
+  return { html, clickable };
+}
+
+function unpinTooltip() {
+  state.tipPinned = false;
+  const tip = $("#tooltip");
+  tip.classList.remove("pinned");
+  tip.style.opacity = 0;
+}
+
 function hookTooltip() {
   const canvas = $("#map"), tip = $("#tooltip");
-  canvas.addEventListener("mousemove", (e) => {
-    if (!state.world) return;
-    const rect = canvas.getBoundingClientRect();
-    const n = state.meta.grid_size;
-    const cell = rect.width / n;
-    const y = Math.floor((e.clientX - rect.left) / cell);
-    const x = Math.floor((e.clientY - rect.top) / cell);
-    if (x < 0 || y < 0 || x >= n || y >= n) return (tip.style.opacity = 0);
-
-    const lines = [`${x}:${y}`];
-    const food = state.world.food.find((f) => f[0] === x && f[1] === y);
-    if (food) lines.push(`food ${food[2]}`);
-    else if (state.meta.food_source === "observed") lines.push("never observed");
-    for (const [tag, a] of Object.entries(state.world.agents)) {
-      if (a[0] !== x || a[1] !== y) continue;
-      // Plain text tooltip, so the glyph is the only channel available here.
-      const health = healthOf(a);
-      lines.push(`${tag}${health ? ` ${HEALTH_GLYPH[health]}` : ""}  energy ${a[2] ?? "∞"}`);
-    }
-    for (const [ax, ay, name] of state.world.artifacts) {
-      if (ax === x && ay === y) lines.push(`◆ ${name}`);
-    }
-    tip.textContent = lines.join("\n");
-    tip.style.opacity = 1;
-    tip.style.left = e.clientX - rect.left + canvas.offsetLeft + 14 + "px";
-    tip.style.top = e.clientY - rect.top + canvas.offsetTop + 14 + "px";
-  });
-  canvas.addEventListener("mouseleave", () => ($("#tooltip").style.opacity = 0));
-  canvas.addEventListener("click", (e) => {
-    if (!state.world) return;
+  const cellAt = (e) => {
     const rect = canvas.getBoundingClientRect();
     const n = state.meta.grid_size, cell = rect.width / n;
-    const y = Math.floor((e.clientX - rect.left) / cell);
-    const x = Math.floor((e.clientY - rect.top) / cell);
+    return {
+      x: Math.floor((e.clientY - rect.top) / cell),
+      y: Math.floor((e.clientX - rect.left) / cell),
+      n, rect,
+    };
+  };
+  const place = (e, rect) => {
+    tip.style.left = e.clientX - rect.left + canvas.offsetLeft + 14 + "px";
+    tip.style.top = e.clientY - rect.top + canvas.offsetTop + 14 + "px";
+  };
+
+  canvas.addEventListener("mousemove", (e) => {
+    if (!state.world || state.tipPinned) return;
+    const { x, y, n, rect } = cellAt(e);
+    if (x < 0 || y < 0 || x >= n || y >= n) return (tip.style.opacity = 0);
+    tip.innerHTML = tooltipHtml(x, y).html;
+    tip.style.opacity = 1;
+    place(e, rect);
+  });
+  canvas.addEventListener("mouseleave", () => { if (!state.tipPinned) tip.style.opacity = 0; });
+
+  canvas.addEventListener("click", (e) => {
+    if (!state.world) return;
+    const { x, y, n, rect } = cellAt(e);
+    if (x < 0 || y < 0 || x >= n || y >= n) return unpinTooltip();
+    // Shortcuts kept from before the pin existed: a being on the cell gets
+    // selected outright, a bare artifact opens in the panel.
+    let being = null, art = null;
     for (const [tag, a] of Object.entries(state.world.agents)) {
-      if (a[0] === x && a[1] === y) { selectAgent(tag); return; }
+      if (a[0] === x && a[1] === y) being = being ?? tag;
     }
-    // No being on the cell: a click on a diamond opens it in the panel.
     for (const [ax, ay, name] of state.world.artifacts) {
-      if (ax === x && ay === y) { openArtifact(name); return; }
+      if (ax === x && ay === y) art = art ?? name;
     }
+    if (being) selectAgent(being);
+    else if (art) openArtifact(art);
+
+    const { html, clickable } = tooltipHtml(x, y);
+    if (!clickable) return unpinTooltip();
+    // Pin the tooltip so its contents can be clicked (several beings on one
+    // cell, or a being standing on an artifact). Unpinned by Escape, a click
+    // on an empty cell, or moving through time.
+    state.tipPinned = true;
+    tip.classList.add("pinned");
+    tip.innerHTML = html;
+    tip.style.opacity = 1;
+    place(e, rect);
+    tip.querySelectorAll("[data-tag]").forEach((el) => {
+      el.onclick = () => selectAgent(el.dataset.tag);
+    });
+    tip.querySelectorAll("[data-art]").forEach((el) => {
+      el.onclick = () => openArtifact(el.dataset.art);
+    });
   });
 }
 
@@ -793,7 +889,10 @@ function hookControls() {
     else if (e.key === "ArrowRight") { stop(); goto(state.step + (e.shiftKey ? 10 : 1)); }
     else if (e.key === "Home") { stop(); state.following = false; goto(0); }
     else if (e.key === "End") { stop(); state.following = state.meta.status === "live"; goto(state.meta.last_step); }
-    else if (e.key === "Escape") document.querySelectorAll(".overlay").forEach((o) => o.classList.add("hidden"));
+    else if (e.key === "Escape") {
+      unpinTooltip();
+      document.querySelectorAll(".overlay").forEach((o) => o.classList.add("hidden"));
+    }
   });
 
   // The map is sized from its container, which keeps changing as the charts and
