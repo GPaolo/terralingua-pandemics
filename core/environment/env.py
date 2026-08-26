@@ -1257,6 +1257,15 @@ class OpenGridWorld:
                 if new_pose not in self.agent_pos.values():
                     self._update_agent_pos(agent=agent, new_pos=new_pose)
                 else:
+                    blocker = next(
+                        t for t, p in self.agent_pos.items() if p == new_pose
+                    )
+                    self._note_outcome(
+                        infos,
+                        agent,
+                        f"You bumped into {self.agent_names[blocker]} "
+                        "and stayed where you are.",
+                    )
                     # New pose is current agent position
                     new_pose = self.agent_pos[agent]
                     # small penalty for trying to move into another agent
