@@ -147,6 +147,18 @@ class EnvConfig:
             "help": "Energy consumption multiplier for each viral artifact hosted (K)"
         },
     )
+    viral_incubation_max: int = field(
+        default=21,
+        metadata={
+            "help": "Max steps between infection and symptoms (silent, non-infectious phase)"
+        },
+    )
+    viral_incubation_min: int = field(
+        default=2,
+        metadata={
+            "help": "Min steps between infection and symptoms (silent, non-infectious phase)"
+        },
+    )
     viral_infection_probability: float = field(
         default=0.3,
         metadata={
@@ -195,6 +207,12 @@ class EnvConfig:
         )
         assert self.viral_init_infected >= 0, (
             "viral_init_infected cannot be negative"
+        )
+        assert self.viral_incubation_min >= 0, (
+            "viral_incubation_min cannot be negative"
+        )
+        assert self.viral_incubation_min <= self.viral_incubation_max, (
+            "viral_incubation_min cannot be greater than viral_incubation_max"
         )
 
 

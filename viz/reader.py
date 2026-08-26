@@ -299,6 +299,9 @@ class RunReader:
             "food_total": r.get("food_total", 0.0),
             "n_agents": r.get("n_agents", len(r["agents"])),
             "n_infected": r.get("n_infected", 0),
+            # Schema 1 predates the incubation phase: every infection there was
+            # symptomatic from the start. Same fallback as series().
+            "n_sick": r.get("n_sick", r.get("n_infected", 0)),
         }
 
     def agent_tick(self, tag: str, t: int) -> Optional[dict]:
@@ -414,4 +417,10 @@ class RunReader:
             "food_total": [self._steps[t].get("food_total", 0.0) for t in ts],
             "n_agents": [self._steps[t].get("n_agents", 0) for t in ts],
             "n_infected": [self._steps[t].get("n_infected", 0) for t in ts],
+            # Schema 1 runs have no n_sick: every infection there was
+            # symptomatic from the start, so it matches n_infected.
+            "n_sick": [
+                self._steps[t].get("n_sick", self._steps[t].get("n_infected", 0))
+                for t in ts
+            ],
         }

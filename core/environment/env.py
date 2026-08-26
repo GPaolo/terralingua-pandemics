@@ -34,11 +34,13 @@ MOVE_DICT = {
 AGENT_INPUT_TYPE = ["text"]
 AVAILABLE_DEAD_AGENT_FOOD = ["single", "area", "none"]
 
-#: What an agent hosting a viral artifact is told about itself, every step, in
-#: the "Additional info from the environment" block of its prompt. Deliberately
-#: describes the symptoms rather than naming the virus: nothing in the system
-#: prompt announces that sickness exists, so a healthy agent still has to work
-#: out what is happening to the being that stopped moving.
+#: What an agent hosting a *symptomatic* viral artifact is told about itself,
+#: every step, in the "Additional info from the environment" block of its
+#: prompt. Deliberately describes the symptoms rather than naming the virus:
+#: nothing in the system prompt announces that sickness exists, so a healthy
+#: agent still has to work out what is happening to the being that stopped
+#: moving. An agent still incubating is told nothing at all — see
+#: OpenGridWorld._count_sick.
 SICK_AGENT_NOTICE = (
     "You are sick. Something is living inside you and draining your energy. "
     "You are too weak to move or to take energy from others, and you have no "
@@ -79,6 +81,8 @@ class OpenGridWorld:
         viral_init_infected: int = 0,
         viral_outbreak_step: int = 0,
         viral_lifespan: int = -1,
+        viral_incubation_min: int = 2,
+        viral_incubation_max: int = 21,
         viral_dropped_lifespan: int = 20,
         viral_infection_radius: int = 1,
         viral_infection_probability: float = 0.3,
@@ -109,6 +113,11 @@ class OpenGridWorld:
         self.viral_init_infected = viral_init_infected
         self.viral_outbreak_step = viral_outbreak_step
         self.viral_lifespan = viral_lifespan
+        # Each infection draws its own incubation from [min, max]: the host is a
+        # silent, harmless carrier until it runs out. viral_lifespan then counts
+        # the symptomatic period, so latency does not eat the infectious window.
+        self.viral_incubation_min = viral_incubation_min
+        self.viral_incubation_max = viral_incubation_max
         self.viral_dropped_lifespan = viral_dropped_lifespan
         self.viral_infection_radius = viral_infection_radius
         self.viral_infection_probability = viral_infection_probability
@@ -304,6 +313,16 @@ class OpenGridWorld:
             )
         return status
 
+    def _draw_incubation(self) -> int:
+        """Steps this new infection stays latent before showing symptoms."""
+        if self.viral_incubation_max <= 0:
+            return 0
+        if self.rng is None:
+            self.rng = np.random.default_rng()
+        return int(
+            self.rng.integers(self.viral_incubation_min, self.viral_incubation_max + 1)
+        )
+
     def infect_agent(
         self,
         agent_tag: str,
@@ -335,9 +354,13 @@ class OpenGridWorld:
             art_name = f"{strain}_i{self.viral_infection_count}"
 
         pose = self.agent_pos[agent_tag]
+        incubation = self._draw_incubation()
         if source_artifact is not None:
             artifact = source_artifact.spawn_copy(
-                name=art_name, pose=pose, timestamp=self.step_count
+                name=art_name,
+                pose=pose,
+                timestamp=self.step_count,
+                incubation=incubation,
             )
         else:
             lifespan = np.inf if self.viral_lifespan == -1 else self.viral_lifespan
@@ -348,6 +371,7 @@ class OpenGridWorld:
                 creator="environment",
                 creation_time=self.step_count,
                 strain=strain,
+                incubation=incubation,
             )
 
         artifact.users[agent_tag].add(self.step_count)
@@ -366,6 +390,7 @@ class OpenGridWorld:
                     source_artifact.name if source_artifact is not None else None
                 ),
                 strain=strain,
+                incubation=incubation,
                 artifact=artifact.serialize(),
             )
         return art_name
@@ -447,9 +472,9 @@ class OpenGridWorld:
         for agent_tag in self.agent_registry:
             avail_actions = self._get_avail_actions(agent_tag=agent_tag)
             infos[agent_tag] = {"available_actions": avail_actions}
-            # Matters on --resume: agents infected before the checkpoint would
+            # Matters on --resume: agents sick before the checkpoint would
             # otherwise get their first prompt back without the notice.
-            if self._count_viral(agent_tag) > 0:
+            if self._count_sick(agent_tag) > 0:
                 infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
 
         self._log_world_state()
@@ -468,11 +493,28 @@ class OpenGridWorld:
         infos[agent_tag]["Action outcome"] = f"{previous} {message}".strip()
 
     def _count_viral(self, agent_tag: str) -> int:
-        """How many viral artifacts this agent is currently hosting."""
+        """How many viral artifacts this agent is currently hosting.
+
+        Counts both phases. An agent still incubating is infected but not yet
+        sick — for anything the agent can feel or do, use _count_sick.
+        """
         return sum(
             1
             for name in self.agent_inventories[agent_tag]
             if isinstance(self.artifacts.get(name), ViralArtifact)
+        )
+
+    def _count_sick(self, agent_tag: str) -> int:
+        """How many of this agent's infections have finished incubating.
+
+        This, not _count_viral, is what gates behaviour: an incubating host
+        moves, eats, steals and spreads nothing, and is told nothing.
+        """
+        return sum(
+            1
+            for name in self.agent_inventories[agent_tag]
+            if isinstance(self.artifacts.get(name), ViralArtifact)
+            and self.artifacts[name].symptomatic
         )
 
     def _log_world_state(self):
@@ -485,12 +527,15 @@ class OpenGridWorld:
 
         agents = {}
         n_infected = 0
+        n_sick = 0
         for tag in self.agent_registry:
             pos = self.agent_pos.get(tag)
             if pos is None:
                 continue
             n_viral = self._count_viral(tag)
+            n_sick_tag = self._count_sick(tag)
             n_infected += n_viral > 0
+            n_sick += n_sick_tag > 0
             # A negative init_agent_energy means infinite energy, which is not
             # representable in JSON; null reads as "unbounded" to the consumer.
             energy = self.agent_energy[tag]
@@ -501,6 +546,7 @@ class OpenGridWorld:
                 self.agent_time[tag],
                 len(self.agent_inventories[tag]),
                 n_viral,
+                n_sick_tag,
             ]
 
         # artifacts_map is a defaultdict, so a stale read can leave empty sets
@@ -517,6 +563,7 @@ class OpenGridWorld:
             artifacts=artifacts,
             food_total=sum(self.food.values()),
             n_infected=n_infected,
+            n_sick=n_sick,
         )
 
     # ---------- core mechanics ----------
@@ -540,12 +587,13 @@ class OpenGridWorld:
                 )
 
             move = (0, 0)
-            # Hosting a viral artifact makes an agent sick: it cannot move,
-            # steal energy or eat until the infection clears. _get_avail_actions
-            # already withholds those affordances; re-checking here keeps the
-            # rule true even for a hand-driven step() and, unlike the silent
-            # coercion below, tells the agent why nothing happened.
-            sick = self._count_viral(agent) > 0
+            # A viral artifact past its incubation makes an agent sick: it
+            # cannot move, steal energy or eat until the infection clears.
+            # _get_avail_actions already withholds those affordances;
+            # re-checking here keeps the rule true even for a hand-driven
+            # step() and, unlike the silent coercion below, tells the agent why
+            # nothing happened. An agent still incubating is unaffected.
+            sick = self._count_sick(agent) > 0
 
             # Get action name, message and params
             # ---------------------------
@@ -1057,6 +1105,10 @@ class OpenGridWorld:
                 # Inventory
                 passive_effects = []
                 for art_name in self.agent_inventories[agent]:
+                    # A virus the agent is still incubating stays out of its
+                    # own prompt: this effect names the artifact outright.
+                    if self._is_hidden_infection(art_name):
+                        continue
                     effect = self.artifacts[art_name].passive_effect(
                         timestamp=self.step_count, agent_name=agent
                     )
@@ -1096,8 +1148,14 @@ class OpenGridWorld:
         updated_inventory = defaultdict(set)
         for agent_tag, inventory in self.agent_inventories.items():
             for art_name in inventory:
-                if self.artifacts[art_name].remaining_time is not None:
-                    self.artifacts[art_name].remaining_time -= 1
+                artifact = self.artifacts[art_name]
+                # An infection that is still incubating burns its latency, not
+                # its lifespan: viral_lifespan counts symptomatic steps only, so
+                # a long incubation does not shorten the infectious window.
+                if isinstance(artifact, ViralArtifact) and artifact.incubation > 0:
+                    artifact.incubation -= 1
+                elif artifact.remaining_time is not None:
+                    artifact.remaining_time -= 1
 
                 if self.artifacts[art_name].remaining_time <= 0:
                     artifact = self.artifacts.pop(art_name)
@@ -1131,12 +1189,14 @@ class OpenGridWorld:
         # ---------------------------
 
         # ---- Handle energy and time loss for all agents ----
-        # Hosting viral artifacts multiplies the energy consumed per step
+        # Symptomatic viral artifacts multiply the energy consumed per step.
+        # Incubating ones cost nothing extra: a silent carrier feels fine.
         for a in self.agent_registry:
             energy_loss = 1
             if not self.inert_artifacts:
                 for art_name in self.agent_inventories[a]:
-                    if isinstance(self.artifacts.get(art_name), ViralArtifact):
+                    artifact = self.artifacts.get(art_name)
+                    if isinstance(artifact, ViralArtifact) and artifact.symptomatic:
                         energy_loss *= self.viral_energy_multiplier
             self.agent_energy[a] -= energy_loss
             self.agent_time[a] -= 1
@@ -1171,7 +1231,7 @@ class OpenGridWorld:
             if agent_tag not in infos:
                 infos[agent_tag] = {}
             infos[agent_tag]["available_actions"] = avail_actions
-            if self._count_viral(agent_tag) > 0:
+            if self._count_sick(agent_tag) > 0:
                 infos[agent_tag]["Health"] = SICK_AGENT_NOTICE
             if self.use_colors:
                 agent_color = self.agent_colors.get(agent_tag, "no color")
@@ -1482,9 +1542,14 @@ class OpenGridWorld:
                 for art_name in artifacts:
                     artifact = self.artifacts.get(art_name)
                     # Viral artifacts dropped at their host's death only
-                    # survive on the map for viral_dropped_lifespan steps
+                    # survive on the map for viral_dropped_lifespan steps.
+                    # A corpse is contagious whatever stage its host reached,
+                    # so the incubation ends here: that keeps
+                    # viral_dropped_lifespan meaning exactly what it says and
+                    # spares the map pass a second clock to tick.
                     if isinstance(artifact, ViralArtifact):
                         artifact.pose = pos
+                        artifact.incubation = 0
                         artifact.remaining_time = (
                             np.inf
                             if self.viral_dropped_lifespan == -1
@@ -1611,6 +1676,7 @@ class OpenGridWorld:
         inventory_list = [
             f"A({self.artifacts[art].art_type}): {self.artifacts[art].name}"
             for art in self.agent_inventories[agent]
+            if not self._is_hidden_infection(art)
         ]
 
         complete_obs = {
@@ -1623,8 +1689,25 @@ class OpenGridWorld:
         }
         return complete_obs
 
+    def _is_hidden_infection(self, art_name: str) -> bool:
+        """Whether an artifact must be kept out of its own host's prompt.
+
+        An incubating infection is silent: the host has no symptoms and must
+        have no way to tell it is carrying anything. Everything in ``infos``
+        and ``obs["inventory"]`` is rendered verbatim into the prompt, so the
+        artifact has to be filtered out at the source rather than hoping the
+        agent does not read it. Once symptomatic it is shown as normal — by
+        then the host is being told it is sick anyway.
+        """
+        artifact = self.artifacts.get(art_name)
+        return isinstance(artifact, ViralArtifact) and not artifact.symptomatic
+
     def _hosted_viral_strains(self, agent_tag: str) -> Set[str]:
-        """Strains of the viral artifacts currently in an agent's inventory."""
+        """Strains of the viral artifacts currently in an agent's inventory.
+
+        Both phases count: an incubating host is already immune to re-catching
+        the strain it is carrying.
+        """
         strains = set()
         for art_name in self.agent_inventories[agent_tag]:
             artifact = self.artifacts.get(art_name)
@@ -1782,9 +1865,13 @@ class OpenGridWorld:
             agent_tag = candidates[int(idx)]
             art_name = self.infect_agent(agent_tag=agent_tag)
             if art_name is not None:
-                infos.setdefault(agent_tag, {})["Infection"] = (
-                    f"Artifact {art_name} appeared in your inventory."
-                )
+                # An index case that is still incubating is told nothing — see
+                # _spread_viral_artifacts. The console line below is for the
+                # operator, not the agent.
+                if self.artifacts[art_name].symptomatic:
+                    infos.setdefault(agent_tag, {})["Infection"] = (
+                        f"Artifact {art_name} appeared in your inventory."
+                    )
                 print(
                     f"🦠 Viral outbreak: {self.agent_names[agent_tag]}({agent_tag}) infected with {art_name} 🦠"
                 )
@@ -1792,11 +1879,12 @@ class OpenGridWorld:
     def _spread_viral_artifacts(self, infos: dict):
         """Spreads viral artifacts to agents nearby their current location.
 
-        Every viral artifact — hosted in an agent's inventory or lying on the
-        map after its host died — has a viral_infection_probability chance of
-        copying itself into the inventory of each agent within
-        viral_infection_radius cells. An agent cannot host the same strain
-        twice.
+        Every *symptomatic* viral artifact — hosted in an agent's inventory or
+        lying on the map after its host died — has a
+        viral_infection_probability chance of copying itself into the inventory
+        of each agent within viral_infection_radius cells. An agent cannot host
+        the same strain twice. Artifacts still incubating transmit nothing, so
+        a silent carrier is genuinely harmless until its symptoms start.
 
         Distance is the Chebyshev distance on the torus (_toroidal_distance),
         so the default radius of 1 means transmission by contact only: the 8
@@ -1816,12 +1904,12 @@ class OpenGridWorld:
         for host in self.agent_registry:
             for art_name in self.agent_inventories[host]:
                 artifact = self.artifacts.get(art_name)
-                if isinstance(artifact, ViralArtifact):
+                if isinstance(artifact, ViralArtifact) and artifact.symptomatic:
                     infections.append((host, self.agent_pos[host], artifact))
         for pos, art_names in self.artifacts_map.items():
             for art_name in art_names:
                 artifact = self.artifacts.get(art_name)
-                if isinstance(artifact, ViralArtifact):
+                if isinstance(artifact, ViralArtifact) and artifact.symptomatic:
                     infections.append((None, pos, artifact))
         if not infections:
             return
@@ -1850,9 +1938,13 @@ class OpenGridWorld:
                 if art_name is None:
                     continue
                 hosted_strains[target].add(artifact.strain)
-                infos.setdefault(target, {})["Infection"] = (
-                    f"Artifact {art_name} appeared in your inventory."
-                )
+                # Say nothing while the new infection incubates: everything in
+                # infos is rendered verbatim into the agent's prompt, so this
+                # message alone would give the whole latent phase away.
+                if self.artifacts[art_name].symptomatic:
+                    infos.setdefault(target, {})["Infection"] = (
+                        f"Artifact {art_name} appeared in your inventory."
+                    )
 
     def _get_nearby_agents(self, agent_tag: str) -> List[str]:
         agent_position = self.agent_pos[agent_tag]
@@ -1869,12 +1961,14 @@ class OpenGridWorld:
     def _get_avail_actions(self, agent_tag: str):
         agent_position = self.agent_pos[agent_tag]
 
-        # Hosting a viral artifact makes an agent sick: it cannot move or steal
-        # energy (and, in step(), it stops eating). "move" itself stays on the
-        # list, restricted to "stay", so that a sick agent alone in an empty
-        # patch is never left with an empty action list — the prompt would then
-        # offer it nothing to choose and every reply would fail to parse.
-        sick = self._count_viral(agent_tag) > 0
+        # A viral artifact past its incubation makes an agent sick: it cannot
+        # move or steal energy (and, in step(), it stops eating). "move" itself
+        # stays on the list, restricted to "stay", so that a sick agent alone in
+        # an empty patch is never left with an empty action list — the prompt
+        # would then offer it nothing to choose and every reply would fail to
+        # parse. An agent still incubating keeps the full action set: nothing
+        # here may hint that it is carrying anything.
+        sick = self._count_sick(agent_tag) > 0
 
         available_actions = {"move": deepcopy(ACTION_TEXT["move"])}
         if sick:
@@ -2131,6 +2225,7 @@ class OpenGridWorld:
         FOOD_DARK = (34, 139, 34)
         ARTIFACT_COLOR = (180, 60, 70)
         VIRAL_COLOR = (150, 40, 160)
+        INCUBATING_COLOR = (250, 178, 25)
         AGENT_PALETTE = {"numerical": (70, 130, 180), "text": (40, 90, 140)}
 
         cw = max(1, int(cell_w))
@@ -2185,14 +2280,12 @@ class OpenGridWorld:
                     pygame.Rect(int(y * cell_w), int(x * cell_h), cw, ch),
                 )
 
-        # Agents — full cell, colored (infected ones in purple)
+        # Agents — full cell, colored (sick ones purple, incubating ones amber)
         for agent, agent_type in self.agent_registry.items():
-            infected = any(
-                isinstance(self.artifacts.get(art_name), ViralArtifact)
-                for art_name in self.agent_inventories[agent]
-            )
-            if infected:
+            if self._count_sick(agent) > 0:
                 color = VIRAL_COLOR
+            elif self._count_viral(agent) > 0:
+                color = INCUBATING_COLOR
             else:
                 color = AGENT_PALETTE.get(agent_type, (100, 100, 100))
             x, y = self.agent_pos[agent]

@@ -14,6 +14,11 @@ from core.environment.env import OpenGridWorld
 
 
 def make_env(tmp, food_mechanism=False, **viral_kwargs):
+    # No incubation unless a test asks for it: these checks are about the
+    # symptomatic phase, and incubation=0 reproduces the pre-incubation
+    # behaviour exactly. test_incubation_* below cover the latent phase.
+    viral_kwargs.setdefault("viral_incubation_min", 0)
+    viral_kwargs.setdefault("viral_incubation_max", 0)
     env = OpenGridWorld(
         grid_size=20,
         vision_radius=3,
@@ -28,6 +33,15 @@ def make_env(tmp, food_mechanism=False, **viral_kwargs):
     )
     env.rng = np.random.default_rng(0)
     return env
+
+
+def get_sick(env, agent_tag):
+    """Hosted viral artifacts that are past their incubation."""
+    return [
+        art_name
+        for art_name in get_viral(env, agent_tag)
+        if env.artifacts[art_name].symptomatic
+    ]
 
 
 def get_viral(env, agent_tag):
@@ -363,6 +377,206 @@ def test_sick_beings_are_debilitated():
     print("PASS: sick beings cannot move, steal or eat, and are told so")
 
 
+def test_incubation_is_silent():
+    """A carrier still incubating behaves normally and is told nothing."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        food_mechanism=True,
+        viral_infection_probability=1.0,
+        viral_energy_multiplier=4.0,
+        viral_lifespan=-1,
+        viral_incubation_min=3,
+        viral_incubation_max=3,
+    )
+    for tag in ("a", "b"):
+        env.add_agent(agent_tag=tag, agent_name=tag, agent_type="text")
+    env.restart_env(agent_poses={"a": (5, 5), "b": (5, 6)})
+    for tag in env.agent_registry:
+        env.agent_energy[tag] = 1000.0
+    env._food_decay_rate = 0.0
+    env._food_spawn_rate = 0.0
+    env.food.clear()
+
+    env.infect_agent(agent_tag="a")
+    assert get_viral(env, "a"), "a is infected"
+    assert not get_sick(env, "a"), "but not yet symptomatic"
+
+    # Every affordance survives: nothing in the action list may hint at it
+    avail = env._get_avail_actions("a")
+    assert avail["move"]["params"] == ACTION_TEXT["move"]["params"]
+    assert "take" in avail
+
+    # It moves, it eats, and it pays the ordinary 1 energy
+    pos_a = env.agent_pos["a"]
+    target = (pos_a[0] + 1, pos_a[1])
+    env.food[target] = 6.0
+    e_before = env.agent_energy["a"]
+    obs, _, _, _, infos = env.step(
+        {"a": {"action": "move", "params": {"direction": "down"}}}
+    )
+    assert env.agent_pos["a"] == target, "an incubating being still moves"
+    assert target not in env.food, "an incubating being still eats"
+    assert env.agent_energy["a"] == e_before + 6.0 - 1.0, "no viral drain yet"
+
+    # Silence on all four channels that reach the prompt
+    assert "Health" not in infos["a"]
+    assert "Infection" not in infos["a"]
+    assert "Passive interaction result - Artifacts in inventory" not in infos["a"]
+    assert obs["a"]["inventory"] == [], "the virus must not show in its inventory"
+
+    # And it infects nobody, even at probability 1.0 with b adjacent
+    env._update_agent_pos(agent="a", new_pos=(5, 5))
+    env.step({})
+    assert not get_viral(env, "b"), "an incubating carrier must not transmit"
+
+    # b, who can see a, is told nothing either: inventories are not observable
+    assert not any(
+        "viral" in str(cell) for cell in env._build_obs("b")["observation"].values()
+    )
+    print("PASS: incubating carriers move, eat, stay silent and transmit nothing")
+
+
+def test_incubation_then_symptoms():
+    """Symptoms land exactly viral_incubation steps after infection."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        viral_infection_probability=1.0,
+        viral_energy_multiplier=4.0,
+        viral_lifespan=-1,
+        viral_incubation_min=3,
+        viral_incubation_max=3,
+    )
+    for tag in ("a", "b"):
+        env.add_agent(agent_tag=tag, agent_name=tag, agent_type="text")
+    env.restart_env(agent_poses={"a": (5, 5), "b": (5, 6)})
+    for tag in env.agent_registry:
+        env.agent_energy[tag] = 1000.0
+
+    env.infect_agent(agent_tag="a")
+    for expected in (2, 1, 0):
+        e_before = env.agent_energy["a"]
+        _, _, _, _, infos = env.step({})
+        assert env.artifacts[get_viral(env, "a")[0]].incubation == expected
+        if expected > 0:
+            assert not get_sick(env, "a")
+            assert "Health" not in infos["a"]
+            assert env.agent_energy["a"] == e_before - 1.0, "no drain while latent"
+            assert not get_viral(env, "b"), "no transmission while latent"
+
+    # Three steps after infection: symptomatic, draining, infectious, and told
+    assert get_sick(env, "a"), "symptoms should have started"
+    assert "Health" in infos["a"] and "sick" in infos["a"]["Health"]
+    assert env.agent_energy["a"] == e_before - 4.0, "multiplier applies now"
+    assert get_viral(env, "b"), "it transmits on its first symptomatic step"
+    print("PASS: symptoms, drain and transmission all start after the incubation")
+
+
+def test_lifespan_counts_symptomatic_steps_only():
+    """A long incubation must not eat into the infectious period."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        viral_infection_probability=0.0,
+        viral_lifespan=3,
+        viral_incubation_min=5,
+        viral_incubation_max=5,
+    )
+    env.add_agent(agent_tag="x", agent_name="x", agent_type="text")
+    env.restart_env(agent_poses={"x": (5, 5)})
+    env.agent_energy["x"] = 1000.0
+
+    name = env.infect_agent(agent_tag="x")
+    # remaining_time is the infectious window and must not tick while latent
+    for _ in range(5):
+        env.step({})
+        assert env.artifacts[name].remaining_time == 3, "lifespan ticked too early"
+    assert get_sick(env, "x"), "symptoms after 5 steps"
+
+    for _ in range(3):
+        assert get_sick(env, "x"), "still infectious"
+        env.step({})
+    assert not get_viral(env, "x"), "recovers 3 symptomatic steps after onset"
+    print("PASS: viral_lifespan counts symptomatic steps, not latent ones")
+
+
+def test_incubation_is_drawn_per_infection():
+    """Each infection samples its own latency from [min, max]."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        viral_infection_probability=0.0,
+        viral_lifespan=-1,
+        viral_incubation_min=2,
+        viral_incubation_max=21,
+    )
+    env.add_agent(agent_tag="x", agent_name="x", agent_type="text")
+    env.restart_env(agent_poses={"x": (5, 5)})
+
+    drawn = []
+    for i in range(60):
+        name = env.infect_agent(agent_tag="x", strain=f"s{i}")
+        drawn.append(env.artifacts[name].incubation)
+    assert all(2 <= d <= 21 for d in drawn), f"out of range: {sorted(set(drawn))}"
+    assert len(set(drawn)) > 1, "latency should vary between infections"
+    print("PASS: incubation is sampled per infection within [min, max]")
+
+
+def test_corpse_is_infectious_whatever_the_stage():
+    """A host that dies while incubating still leaves a contagious corpse."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        viral_infection_probability=1.0,
+        viral_lifespan=-1,
+        viral_dropped_lifespan=5,
+        viral_incubation_min=10,
+        viral_incubation_max=10,
+    )
+    for tag in ("a", "b"):
+        env.add_agent(agent_tag=tag, agent_name=tag, agent_type="text")
+    env.restart_env(agent_poses={"a": (5, 5), "b": (15, 15)})
+    env.agent_energy["b"] = 1000.0
+
+    name = env.infect_agent(agent_tag="a")
+    assert not get_sick(env, "a"), "a dies while still incubating"
+    death_pos = env.agent_pos["a"]
+    env.agent_energy["a"] = 0.5
+    env.step({})
+    assert "a" not in env.agent_registry
+    assert env.artifacts[name].incubation == 0, "the corpse matures on death"
+
+    env._update_agent_pos(agent="b", new_pos=(death_pos[0], death_pos[1] - 1))
+    env.step({})
+    assert get_viral(env, "b"), "the corpse should still infect a neighbour"
+    print("PASS: a corpse is contagious even if its host never fell ill")
+
+
+def test_incubation_survives_checkpoint():
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        viral_infection_probability=0.0,
+        viral_lifespan=-1,
+        viral_incubation_min=7,
+        viral_incubation_max=7,
+    )
+    env.add_agent(agent_tag="x", agent_name="x", agent_type="text")
+    env.restart_env(agent_poses={"x": (5, 5)})
+    env.agent_energy["x"] = 1000.0
+    name = env.infect_agent(agent_tag="x")
+    env.step({})
+    assert env.artifacts[name].incubation == 6
+
+    env._get_food_distribution()
+    env2 = make_env(Path(tempfile.mkdtemp()))
+    env2.set_state_ckpt(env.get_state_ckpt())
+    assert env2.artifacts[name].incubation == 6, "latency lost across a resume"
+    assert not env2.artifacts[name].symptomatic
+    print("PASS: incubation survives a checkpoint roundtrip")
+
+
 if __name__ == "__main__":
     test_spread_and_energy()
     test_contact_only_spread()
@@ -370,4 +584,10 @@ if __name__ == "__main__":
     test_outbreak()
     test_multiplier_stacks_per_strain()
     test_sick_beings_are_debilitated()
+    test_incubation_is_silent()
+    test_incubation_then_symptoms()
+    test_lifespan_counts_symptomatic_steps_only()
+    test_incubation_is_drawn_per_infection()
+    test_corpse_is_infectious_whatever_the_stage()
+    test_incubation_survives_checkpoint()
     print("\nAll viral artifact checks passed ✅")

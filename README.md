@@ -76,7 +76,8 @@ It shows the world map (food, artifacts, beings, movement trails, the selected
 being's vision), a being inspector with energy, age, inventory and OCEAN-5
 genome, the action and the private `internal_memory` behind it, the chat feed,
 the artifacts, and charts of food, population, artifact creation and token spend.
-Viral runs additionally get infection status on the map and R₀ per generation.
+Viral runs additionally get infection status on the map — amber ⧖ for a being
+still incubating, red ☣ once it is sick — and R₀ per generation.
 
 Runs are picked up automatically: a run is **live** until `open_gridworld.log`
 records `END_RUN`, and the view follows new steps as they are written.
@@ -124,9 +125,15 @@ Seeded artifacts are ordinary text artifacts (agents can read, pick up, modify, 
 
 ### Viral artifacts
 
-A virus-like artifact type for epidemic experiments: it has no content, cannot be created or acted on by agents, spreads probabilistically by contact — by default to agents standing in one of the 8 directly adjacent cells, diagonals and grid wraparound included — multiplies its host's energy consumption, and drops on the map for a limited time when its host dies. Enable it by setting `--viral_init_infected` > 0; widen the transmission range with `--viral_infection_radius` if you want an airborne virus instead. See `run_viral_experiment.sh` for an annotated example and the `viral_*` flags in `python main.py --help` for all knobs (outbreak step, infection radius/probability, infection and corpse lifespans, energy multiplier). Every transmission is logged as a `VIRAL_INFECTION` event, from which the empirical R0 can be computed with `analysis_scripts/compute_r0.py`.
+A virus-like artifact type for epidemic experiments: it has no content, cannot be created or acted on by agents, spreads probabilistically by contact — by default to agents standing in one of the 8 directly adjacent cells, diagonals and grid wraparound included — multiplies its host's energy consumption, and drops on the map for a limited time when its host dies. Enable it by setting `--viral_init_infected` > 0; widen the transmission range with `--viral_infection_radius` if you want an airborne virus instead. See `run_viral_experiment.sh` for an annotated example and the `viral_*` flags in `python main.py --help` for all knobs (outbreak step, incubation range, infection radius/probability, infection and corpse lifespans, energy multiplier). Every transmission is logged as a `VIRAL_INFECTION` event, from which the empirical R0 can be computed with `analysis_scripts/compute_r0.py`.
 
-Hosting a virus makes a being **sick**, and it is told so in plain language every step. A sick being cannot move, cannot take energy from others, and loses its appetite — it will not eat the food it is standing on, and that food is left untouched for others (and for itself, once it recovers). It can still broadcast messages and still *receive* energy, so its energy strictly declines until either the infection expires or another being walks over and gives it some: asking for help is the only way out. Because hosts stop moving and stop foraging, they become stationary sources and realised R0 falls below the free-mixing estimate annotated in `run_viral_experiment.sh` — measure it rather than assuming it.
+One timestep is one day, and an infection runs in two phases.
+
+**Incubating.** For `--viral_incubation_min`..`--viral_incubation_max` days (2–21 by default, drawn per infection) the host is a **silent carrier**. It moves, eats and takes energy exactly as a healthy being does, it infects nobody, it pays no extra energy — and it is told nothing at all. The virus is filtered out of its own inventory listing, so nothing in its prompt reveals that it is carrying anything. Nor can anyone else tell: inventories are not observable, so a carrier looks identical to a healthy being right up until it collapses. Set both bounds to `0` for the old behaviour, where infection and illness are simultaneous.
+
+**Sick.** Once the incubation runs out the being is told so in plain language every step. A sick being cannot move, cannot take energy from others, and loses its appetite — it will not eat the food it is standing on, and that food is left untouched for others (and for itself, once it recovers). It can still broadcast messages and still *receive* energy, so its energy strictly declines until either the infection expires or another being walks over and gives it some: asking for help is the only way out. Only now does it transmit, and only now does `--viral_energy_multiplier` apply.
+
+`--viral_lifespan` measures the **symptomatic** period alone: the latency sits in front of it rather than eating into it, so every host stays infectious for the same number of days whether it incubated for 2 or for 21. Because hosts stop moving and stop foraging once ill, they become stationary sources and realised R0 falls below the free-mixing estimate annotated in `run_viral_experiment.sh` — measure it rather than assuming it. Budget enough timesteps for the latency: each generation is pushed a mean ~11 days later, so short runs will report far more censored infections and may show no outbreak at all.
 
 ### Reproducing paper experiments
 
