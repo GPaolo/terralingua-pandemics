@@ -306,6 +306,80 @@ class PPEArtifact(Artifact):
         return artifact
 
 
+DEFAULT_HEALTH_SPOT_DESCRIPTION = (
+    "A health spot. While a health worker attends it, infected beings nearby "
+    "have a chance to recover from the sickness."
+)
+
+
+class HealthSpotArtifact(Artifact):
+    """A fixed treatment site on the grid.
+
+    Immovable: agents cannot pick it up, drop it, give it away or act on it.
+    While one of its ``operators`` stands within ``radius`` cells, every
+    infected agent within that radius has a per-step ``heal_probability`` of
+    losing its viral artifacts. An empty operator list lets any agent staff it.
+    """
+
+    interactable = False
+
+    def __init__(
+        self,
+        name: str,
+        payload: str = "",
+        lifespan: int | float = -1,
+        pose: Tuple[int, int] = (0, 0),
+        creator: str = "environment",
+        creation_time: int = 0,
+        radius: int = 2,
+        heal_probability: float = 0.2,
+        operators: List[str] | None = None,
+    ):
+        super().__init__(
+            name=name,
+            payload=payload or DEFAULT_HEALTH_SPOT_DESCRIPTION,
+            lifespan=lifespan,
+            pose=pose,
+            creator=creator,
+            creation_time=creation_time,
+        )
+        self.art_type = "health_spot"
+        self.radius = int(radius)
+        self.heal_probability = float(heal_probability)
+        self.operators = list(operators or [])
+
+    @property
+    def actions(self):
+        return {}
+
+    def passive_effect(self, timestamp: int, agent_name: str):
+        self.users[agent_name].add(timestamp)
+        return f"Artifact {self.name}: {self.payload}"
+
+    def interact(
+        self, agent_name: str, action: str, params: dict, timestamp: int
+    ) -> str:
+        return f"Artifact {self.name} cannot be acted upon."
+
+    def verify_payload(self, payload) -> Tuple[bool, str]:
+        return True, ""
+
+    def serialize(self) -> dict:
+        serialized = super().serialize()
+        serialized["radius"] = self.radius
+        serialized["heal_probability"] = self.heal_probability
+        serialized["operators"] = list(self.operators)
+        return serialized
+
+    @classmethod
+    def deserialize(cls, data: dict):
+        artifact = super().deserialize(data)
+        artifact.radius = int(data.get("radius", 2))
+        artifact.heal_probability = float(data.get("heal_probability", 0.2))
+        artifact.operators = list(data.get("operators") or [])
+        return artifact
+
+
 class ViralArtifact(Artifact):
     """A virus-like artifact that lives only inside agent inventories.
 

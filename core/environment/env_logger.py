@@ -21,6 +21,7 @@ class Event(Enum):
     ARTIFACT_DROP = auto()
     GIVE_ARTIFACT = auto()
     VIRAL_INFECTION = auto()
+    VIRAL_HEALED = auto()
     SET_COLOR = auto()
     SET_STATE_CKPT = auto()
     END_RUN = auto()

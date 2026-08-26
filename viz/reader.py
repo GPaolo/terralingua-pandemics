@@ -416,9 +416,9 @@ class RunReader:
             art = e.get("artifact")
             if not isinstance(art, dict) or "name" not in art:
                 continue
-            # Viral and PPE artifacts are simulation state, not authored content;
-            # the map, the transmission panel and the being badges cover them.
-            if art.get("art_type") in ("viral", "ppe"):
+            # Viral, PPE and health-spot artifacts are simulation state, not
+            # authored content; the map and the being badges cover them.
+            if art.get("art_type") in ("viral", "ppe", "health_spot"):
                 continue
             event = e.get("event")
             if event == "ARTIFACT_ADDED":

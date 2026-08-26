@@ -131,7 +131,8 @@ class EnvConfig:
         metadata={
             "help": "Path to a JSON file with artifacts seeded by the environment: "
             "a list of {name, type, payload, pose, lifespan, step} entries "
-            "(type: 'text' or 'ppe')"
+            "(type: 'text', 'ppe' or 'health_spot'; health spots also take "
+            "radius, heal_probability and operators)"
         },
     )
     init_human_agents: int = field(

@@ -18,6 +18,7 @@ from core.environment.artifact import (
     MAX_TEXT_ARTIFACT_SIZE,
     Artifact,
     ArtifactCreationError,
+    HealthSpotArtifact,
     PPEArtifact,
     TextArtifact,
     ViralArtifact,
@@ -261,7 +262,15 @@ class OpenGridWorld:
         return observation, {"available_actions": avail_actions}
 
     def add_artifact(
-        self, pose, art_type, art_name, payload, creator, lifespan, to_inventory=None
+        self,
+        pose,
+        art_type,
+        art_name,
+        payload,
+        creator,
+        lifespan,
+        to_inventory=None,
+        artifact_params=None,
     ) -> str:
         """Adds an artifact to the environment.
 
@@ -310,6 +319,23 @@ class OpenGridWorld:
                 lifespan=lifespan,
                 creation_time=self.step_count,
                 protection=self.ppe_protection,
+                **({"payload": payload} if payload else {}),
+            )
+        elif art_type == "health_spot":
+            if to_inventory is not None:
+                return "Failed. A health spot is fixed to the map and cannot be carried."
+            while art_name in self.artifacts:
+                art_name = f"{art_name}_1"
+            params = artifact_params or {}
+            artifact = HealthSpotArtifact(
+                name=art_name,
+                pose=pose,
+                creator=creator,
+                lifespan=lifespan,
+                creation_time=self.step_count,
+                radius=params.get("radius", 2),
+                heal_probability=params.get("heal_probability", 0.2),
+                operators=params.get("operators"),
                 **({"payload": payload} if payload else {}),
             )
         else:
@@ -1236,9 +1262,11 @@ class OpenGridWorld:
         self._cleanup_artifact_duplicates()
         # ---------------------------
 
-        # Viral artifacts spread and outbreak
+        # Viral artifacts heal, spread and outbreak
         # ---------------------------
+        # Healing first: an infection caught this step gets no instant cure.
         if not self.inert_artifacts:
+            self._heal_at_health_spots(infos)
             self._spread_viral_artifacts(infos)
         self._seed_viral_outbreak(infos)
         # ---------------------------
@@ -1776,6 +1804,68 @@ class OpenGridWorld:
         artifact = self.artifacts.get(art_name)
         return isinstance(artifact, ViralArtifact) and not artifact.symptomatic
 
+    def _heal_at_health_spots(self, infos: dict):
+        """Cures infected agents at staffed health spots.
+
+        A spot is staffed while one of its operators (any agent, if the list
+        is empty) is within its radius. Each infected agent within the radius
+        then has heal_probability per step of losing every hosted viral
+        artifact. Curing a still-incubating infection says nothing: the host
+        never knew it was carrying anything.
+        """
+        spots = [
+            a for a in self.artifacts.values() if isinstance(a, HealthSpotArtifact)
+        ]
+        if not spots or not self.agent_registry:
+            return
+        if self.rng is None:
+            self.rng = np.random.default_rng()
+        for spot in spots:
+            if spot.operators:
+                staff = [self._resolve_agent_ref(ref) for ref in spot.operators]
+                staff = [t for t in staff if t is not None]
+            else:
+                staff = list(self.agent_registry)
+            if not any(
+                self._toroidal_distance(spot.pose, self.agent_pos[t]) <= spot.radius
+                for t in staff
+                if t in self.agent_pos
+            ):
+                continue
+            for tag in list(self.agent_registry):
+                if self._toroidal_distance(spot.pose, self.agent_pos[tag]) > spot.radius:
+                    continue
+                hosted = [
+                    n
+                    for n in self.agent_inventories[tag]
+                    if isinstance(self.artifacts.get(n), ViralArtifact)
+                ]
+                if not hosted or self.rng.random() >= spot.heal_probability:
+                    continue
+                was_sick = any(self.artifacts[n].symptomatic for n in hosted)
+                spot.users[tag].add(self.step_count)
+                for n in hosted:
+                    artifact = self.artifacts.pop(n)
+                    artifact.deletion_time = self.step_count
+                    self.expired_artifacts.append(artifact)
+                    self.agent_inventories[tag].discard(n)
+                    if self.logger:
+                        self.logger.log(
+                            time=self.step_count,
+                            event_type=Event.VIRAL_HEALED,
+                            agent_tag=tag,
+                            agent_name=self.agent_names[tag],
+                            spot=spot.name,
+                            artifact=artifact.serialize(),
+                        )
+                if was_sick:
+                    infos.setdefault(tag, {})["Health"] = (
+                        f"You have been treated at {spot.name} and recovered "
+                        "from the sickness."
+                    )
+                    if self.verbose >= 1:
+                        print(f"⚕️ {self.agent_names[tag]}({tag}) healed at {spot.name} ⚕️")
+
     def _infection_protection(self, agent_tag: str) -> float:
         """Multiplier on the agent's probability of contracting an infection.
 
@@ -1839,11 +1929,12 @@ class OpenGridWorld:
                     f"init_artifacts[{i}] must be a dict with at least a 'name' key, got {entry}"
                 )
             art_type = entry.get("type", "text")
-            if art_type not in ("text", "ppe"):
+            if art_type not in ("text", "ppe", "health_spot"):
                 raise ValueError(
-                    f"init_artifacts[{i}] ({entry['name']}): only 'text' and 'ppe' artifacts "
-                    f"can be seeded, got type '{art_type}'. Viral artifacts are seeded "
-                    "through the viral_init_infected/viral_outbreak_step parameters."
+                    f"init_artifacts[{i}] ({entry['name']}): only 'text', 'ppe' and "
+                    f"'health_spot' artifacts can be seeded, got type '{art_type}'. "
+                    "Viral artifacts are seeded through the "
+                    "viral_init_infected/viral_outbreak_step parameters."
                 )
             pose = entry.get("pose")
             agent = entry.get("agent")
@@ -1874,6 +1965,28 @@ class OpenGridWorld:
                 raise ValueError(
                     f"init_artifacts[{i}] ({entry['name']}): step cannot be negative, got {step}"
                 )
+            extra = {}
+            if art_type == "health_spot":
+                if agent is not None:
+                    raise ValueError(
+                        f"init_artifacts[{i}] ({entry['name']}): a health spot is fixed "
+                        "to the map; use pose, not agent"
+                    )
+                radius = int(entry.get("radius", 2))
+                heal_probability = float(entry.get("heal_probability", 0.2))
+                if radius < 0:
+                    raise ValueError(
+                        f"init_artifacts[{i}] ({entry['name']}): radius cannot be negative"
+                    )
+                if not 0.0 <= heal_probability <= 1.0:
+                    raise ValueError(
+                        f"init_artifacts[{i}] ({entry['name']}): heal_probability must be in [0, 1]"
+                    )
+                extra = {
+                    "radius": radius,
+                    "heal_probability": heal_probability,
+                    "operators": [str(o) for o in entry.get("operators") or []],
+                }
             validated.append(
                 {
                     "name": str(entry["name"]),
@@ -1883,6 +1996,7 @@ class OpenGridWorld:
                     "agent": str(agent) if agent is not None else None,
                     "lifespan": lifespan,
                     "step": step,
+                    **extra,
                 }
             )
         return validated
@@ -1919,6 +2033,11 @@ class OpenGridWorld:
                 pose = tuple(pose) if pose is not None else self._random_free_pos()
 
             lifespan = np.inf if entry["lifespan"] == -1 else entry["lifespan"]
+            params = {
+                k: entry[k]
+                for k in ("radius", "heal_probability", "operators")
+                if k in entry
+            }
             status = self.add_artifact(
                 pose=pose,
                 art_type=entry.get("type", "text"),
@@ -1927,6 +2046,7 @@ class OpenGridWorld:
                 creator="environment",
                 lifespan=lifespan,
                 to_inventory=to_inventory,
+                artifact_params=params or None,
             )
             if status.startswith("Created"):
                 where = (
@@ -2531,6 +2651,8 @@ class OpenGridWorld:
                 return ViralArtifact.deserialize(data["data"])
             if art_type == "ppe":
                 return PPEArtifact.deserialize(data["data"])
+            if art_type == "health_spot":
+                return HealthSpotArtifact.deserialize(data["data"])
             return Artifact.deserialize(data["data"])
 
         raise TypeError(f"Type {data['__type__']} not deserializable")
