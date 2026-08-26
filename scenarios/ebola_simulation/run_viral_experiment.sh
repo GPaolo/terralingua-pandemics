@@ -82,8 +82,8 @@ python main.py \
     --viral_infection_radius 1 `# max distance in cells at which a viral artifact can spread (1 = contact: the 8 adjacent cells)` \
     --viral_infection_probability 0.15 `# per-step probability of catching it from a symptomatic being on an adjacent cell. Calibrate this to hit the target R0` \
     --viral_contact_multiplier 4 `# touching (give/take energy) scales that exposure: 0.15 x 4 = 0.6 per contact — caregiving contact was the main Ebola transmission route` \
-    --viral_energy_multiplier 1.5 `# energy drain multiplier once symptomatic (K). Kept survivable so lethality is set by the roll below, not starvation` \
-    --viral_death_probability 0.19 `# hazard ramps 0 -> this over the 12 sick days; 1-prod(1-0.19*t/12) ~= 70% CFR (untreated Zaire ebolavirus)` \
+    --viral_energy_multiplier 6 `# energy drain multiplier once symptomatic (K): 6/day for 12 days with no eating. Deliberately lethal on its own, so that gifted energy (a contact risk) genuinely buys survival — supportive care roughly halved the real CFR` \
+    --viral_death_probability 0.11 `# hazard ramps 0 -> this over the 12 sick days; 1-prod(1-0.11*t/12) ~= 50% CFR from the roll alone, ~70% combined with the energy drain above (untreated Zaire ebolavirus)` \
     --ppe_protection        0.1 `# multiplier on the infection probability of a being carrying PPE (0: immune, 1: no protection)` \
     --burials `# beings next to remains (a dropped viral artifact) can bury them, removing the artifact from the ground` \
     --burial_infection_multiplier 2.5 `# burying scales the burier's infection probability by this factor for that exposure (PPE still applies). Viral load peaks at death: corpses were the most infectious contacts of the 2014-16 outbreak`
