@@ -888,8 +888,7 @@ class OpenGridWorld:
                             rewards[agent] += stolen
                             rewards[target_tag] -= stolen * 2
                             infos[target_tag]["Energy stolen"] = (
-                                f"{self.agent_names[agent]} took "
-                                f"{stolen:g} energy from you."
+                                f"Someone took {stolen:g} energy from you."
                             )
                             self.logger.log(
                                 time=self.step_count,
