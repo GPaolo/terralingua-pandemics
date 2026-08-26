@@ -629,12 +629,6 @@ function drawCharts() {
   const box = $("#charts");
   box.innerHTML = "";
 
-  box.appendChild(chartCard({
-    title: "Food in the world",
-    series: [{ name: "food", points: zip(s.t, s.food_total), color: cssVar("--s3") }],
-    format: (v) => Math.round(v).toLocaleString(),
-  }));
-
   // Total population wears the same neutral grey as the base being on the map;
   // blue is the PPE-carrier state there too, so the chart and map agree.
   const pop = [{ name: "beings", points: zip(s.t, s.n_agents), color: cssVar("--being") }];
