@@ -159,6 +159,31 @@ Traps:
   it before constructing one. Pass `<exp_dir>/agent_logs` if you build one
   yourself.
 
+## The launcher (`terralingua_launcher/`)
+
+`python -m terralingua_launcher` (port 7000) is a web UI replacing the launch
+shell scripts. It is deliberately **independent of TL code**: the param form
+comes from running `terralingua_launcher/introspect.py` with the *target
+repo's* python (dataclass metadata → name/type/default/help/choices; params
+added to `config.py` appear in the UI with no launcher change), prompts come
+from an `ast` pass over `prompt_templates.py`, and runs are plain
+`python main.py --flag value` subprocesses (only changed-from-default flags
+are emitted). Don't import `core` from launcher code.
+
+- Child processes get their own session (`killpg` on stop); their output goes
+  to `logs/_launcher/`, which the dashboard skips (no `params.json` there).
+- Saved configs / persona files / scenario bundles land in
+  `launcher_configs/` (gitignored via `*.json`).
+- The scenario designer calls the LLM through **litellm** (user's choice);
+  API keys come from env / repo `.env` / a per-call field, never persisted.
+- `--prompt_templates <json>` (AgentConfig) loads `{sys_prompt, agent_prompt}`
+  jinja-source overrides via `load_prompt_overrides` — the runner calls it
+  before any agent exists, and `llm_agent` reads both templates **through the
+  module** so respawns/resumes pick them up. A rewrite must keep every stock
+  placeholder; `terralingua_launcher/prompts.py::validate_rewrite` checks.
+- Tests: `python test_launcher.py`, `python test_prompt_overrides.py` (repo
+  root, no LLM calls).
+
 ## The dashboard (`viz/`)
 
 `python -m viz` serves `./logs` on :8000. Reads JSON/JSONL only, never a pickle,

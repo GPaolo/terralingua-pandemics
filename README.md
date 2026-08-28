@@ -59,6 +59,14 @@ Or use `run_experiment.sh`, a fully annotated template with all available option
 bash run_experiment.sh
 ```
 
+Or launch from a web UI — every parameter as a form control with inline docs,
+persona/artifact editors, an LLM scenario designer, and one-click launch with
+the dashboard alongside (see [terralingua_launcher/](terralingua_launcher/README.md)):
+
+```bash
+python -m terralingua_launcher        # → http://127.0.0.1:7000
+```
+
 Logs are written to `logs/<exp_name>/`.
 
 ## Watching an experiment
