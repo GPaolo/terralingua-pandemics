@@ -18,3 +18,4 @@ plots/
 .idea/
 .DS_Store
 !viz/static/**
+!launcher_configs/**
