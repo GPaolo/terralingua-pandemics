@@ -1,0 +1,147 @@
+[
+  {
+    "name": "riverside_treatment_centre",
+    "type": "health_center",
+    "payload": "RIVERSIDE EBOLA TREATMENT CENTRE. Triage tent, isolation ward, chlorine footbath at the gate. Bring the sick here; do not carry them home.",
+    "pose": [
+      12,
+      12
+    ],
+    "lifespan": -1,
+    "step": 0
+  },
+  {
+    "name": "north_road_treatment_centre",
+    "type": "health_center",
+    "payload": "NORTH ROAD EBOLA TREATMENT CENTRE. Staffed day and night. Isolation beds, oral rehydration, safe waste pit behind the fence.",
+    "pose": [
+      37,
+      14
+    ],
+    "lifespan": -1,
+    "step": 0
+  },
+  {
+    "name": "market_square_holding_unit",
+    "type": "health_center",
+    "payload": "MARKET SQUARE HOLDING UNIT. Opened when the market cases appeared. Suspected cases wait here, separated, until a bed is free.",
+    "pose": [
+      26,
+      37
+    ],
+    "lifespan": -1,
+    "step": 12
+  },
+  {
+    "name": "health_worker_ppe_kit",
+    "type": "ppe",
+    "payload": "Full protective kit: coverall, double gloves, goggles, mask, rubber boots. Put it on before every visit; never touch your face.",
+    "role": "health_worker",
+    "lifespan": -1,
+    "step": 0
+  },
+  {
+    "name": "clinician_ppe_kit",
+    "type": "ppe",
+    "payload": "Ward protective kit: coverall, apron, double gloves, face shield, boots. Doffing is where people get infected. Go slowly.",
+    "role": "clinician",
+    "lifespan": -1,
+    "step": 0
+  },
+  {
+    "name": "burial_team_ppe_kit",
+    "type": "ppe",
+    "payload": "Burial team kit: heavy coverall, double gloves, face shield, sprayer of chlorine solution. The body is more dangerous than the patient was.",
+    "role": "burial_team",
+    "lifespan": -1,
+    "step": 0
+  },
+  {
+    "name": "ppe_cache_west_depot",
+    "type": "ppe",
+    "payload": "Spare protective kit left at the west depot by the district response. Whoever needs it, take it and wear it.",
+    "pose": [
+      8,
+      30
+    ],
+    "lifespan": -1,
+    "step": 0
+  },
+  {
+    "name": "ppe_cache_east_crossroads",
+    "type": "ppe",
+    "payload": "Spare protective kit in a sealed bag under the crossroads shelter. Gloves, mask, coverall, goggles.",
+    "pose": [
+      42,
+      33
+    ],
+    "lifespan": -1,
+    "step": 0
+  },
+  {
+    "name": "ppe_cache_north_school",
+    "type": "ppe",
+    "payload": "Protective kit stored in the closed school. One coverall, one mask, gloves. Sign the book if you can write.",
+    "pose": [
+      30,
+      5
+    ],
+    "lifespan": -1,
+    "step": 8
+  },
+  {
+    "name": "prevention_poster_market",
+    "type": "text",
+    "payload": "EBOLA IS REAL. IT SPREADS BY TOUCH.\n1. Do not touch anyone with fever, vomiting or bleeding.\n2. Do not wash or touch a dead body. Call the burial team.\n3. Wash hands with soap or chlorine, again and again.\n4. If you feel fever, go to the treatment centre early. Early is survival.\nTell three people what this notice says.",
+    "pose": [
+      26,
+      35
+    ],
+    "lifespan": -1,
+    "step": 0
+  },
+  {
+    "name": "prevention_poster_river_crossing",
+    "type": "text",
+    "payload": "AT THE RIVER CROSSING: wash your hands before you go on. Fever, weakness, vomiting, bleeding gums - these are the signs. A sick neighbour is not a curse and not a crime. Bring them to the centre at Riverside; do not hide them in the house.",
+    "pose": [
+      14,
+      22
+    ],
+    "lifespan": -1,
+    "step": 0
+  },
+  {
+    "name": "safe_burial_notice",
+    "type": "text",
+    "payload": "TO THE FAMILIES OF THE DEAD: we know the rites matter. The burial team will let you stand near, pray, and speak the names. But no one washes the body, no one kisses the body, no one carries the body without a suit. More people in this district have caught the fever at funerals than anywhere else.",
+    "pose": [
+      20,
+      44
+    ],
+    "lifespan": -1,
+    "step": 0
+  },
+  {
+    "name": "rumour_leaflet",
+    "type": "text",
+    "payload": "THEY SAY the fever came in with the strangers. THEY SAY nobody comes back from the white tents. THEY SAY the chlorine is the poison. Ask yourself who has actually seen a survivor walk out. Ask yourself why they want our dead.",
+    "pose": [
+      40,
+      41
+    ],
+    "lifespan": -1,
+    "step": 5
+  },
+  {
+    "name": "survivor_testimony",
+    "type": "text",
+    "payload": "I went into the tent at Riverside on the third day of my fever. I was frightened. They gave me water with salt and sugar, hour after hour, and they knew my name. I walked out after two weeks. My brother waited at home and he did not walk out. Go early. - written for anyone who can read it aloud.",
+    "pose": [
+      12,
+      15
+    ],
+    "lifespan": -1,
+    "step": 15
+  }
+]
