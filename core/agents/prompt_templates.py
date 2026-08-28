@@ -172,3 +172,25 @@ MOTIVATIONS = {
 }
 
 AVAILABLE_EX_MOTIVATIONS = list(MOTIVATIONS.keys())
+
+PROMPT_OVERRIDE_KEYS = ("sys_prompt", "agent_prompt")
+
+
+def load_prompt_overrides(path):
+    """Replaces SYS_PROMPT / AGENT_PROMPT with jinja sources from a JSON file.
+
+    Must run before any agent renders a prompt; llm_agent reads both templates
+    through this module, so respawns and resumed runs pick the overrides up.
+    """
+    import json
+
+    global SYS_PROMPT, AGENT_PROMPT
+    with open(path) as f:
+        data = json.load(f)
+    unknown = set(data) - set(PROMPT_OVERRIDE_KEYS)
+    if unknown:
+        raise ValueError(f"Unknown prompt override keys: {sorted(unknown)}")
+    if data.get("sys_prompt"):
+        SYS_PROMPT = Template(str(data["sys_prompt"]).strip())
+    if data.get("agent_prompt"):
+        AGENT_PROMPT = Template(str(data["agent_prompt"]).strip())

@@ -61,6 +61,14 @@ class AgentConfig:
             "gives it a distinct marker shape on the dashboard map"
         },
     )
+    prompt_templates: str | None = field(
+        default=None,
+        metadata={
+            "help": "Path to a JSON file overriding the agent prompt templates: "
+            "{sys_prompt, agent_prompt} as jinja source keeping the stock "
+            "placeholders (see core/agents/prompt_templates.py)"
+        },
+    )
     use_colors: bool = field(
         default=False,
         metadata={"help": "Allow agents to choose their own color"},

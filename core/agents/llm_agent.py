@@ -9,15 +9,14 @@ from typing import Dict, Tuple
 import numpy as np
 import tiktoken
 
+from core.agents import prompt_templates
 from core.agents.agent_logger import AgentLogger
 from core.agents.prompt_templates import (
-    AGENT_PROMPT,
     AVAILABLE_EX_MOTIVATIONS,
     DEBUG_PROMPT,
     ERROR_MSG,
     MOTIVATIONS,
     OBS_STYLE,
-    SYS_PROMPT,
 )
 from core.genome.base_genome import Genome
 from core.genome.ocean_5 import Genome as Ocean5Genome
@@ -92,7 +91,8 @@ class LLMAgent:
         if system_prompt:
             self.system_prompt = system_prompt
         else:
-            self.system_prompt = SYS_PROMPT.render(
+            # Through the module so load_prompt_overrides takes effect.
+            self.system_prompt = prompt_templates.SYS_PROMPT.render(
                 agent_name=self.agent_name,
                 short_obs_descr=OBS_STYLE[self.obs_style]["short"],
                 obs_style=self.obs_style,
@@ -339,7 +339,7 @@ class LLMAgent:
 {info_list}
 """
 
-        prompt = AGENT_PROMPT.render(
+        prompt = prompt_templates.AGENT_PROMPT.render(
             history=history_txt,
             genome=self.genome.as_string(),
             observation=formatted_obs["observation"],

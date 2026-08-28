@@ -17,6 +17,7 @@ from PIL import Image
 
 from core.agents.human_agent import HumanAgent
 from core.agents.llm_agent import LLMAgent
+from core.agents.prompt_templates import load_prompt_overrides
 from core.environment.env import OpenGridWorld
 from core.experiment.checkpoint import CheckpointManager
 from core.experiment.config import ExperimentConfig
@@ -84,6 +85,11 @@ class SimulationRunner:
         print("Initializing SimulationRunner...")
         self.params = params
         self.resume = resume
+
+        # Before any agent exists: both fresh inits and resumes render from
+        # the module-level templates.
+        if self.params.agent.prompt_templates:
+            load_prompt_overrides(self.params.agent.prompt_templates)
 
         run_cfg = self.params.run
         self.exp_logdir = Path(run_cfg.save_root) / "logs" / run_cfg.exp_name  # type: ignore
