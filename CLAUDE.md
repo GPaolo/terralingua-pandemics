@@ -99,7 +99,10 @@ Traps:
   `RECOVERED_AGENT_NOTICE` ("you are immune") — announcing a recovery the host
   never felt would leak the silent infection. Death is a per-symptomatic-step
   roll whose hazard ramps 0 → `viral_death_probability` across the infectious
-  window (`_death_hazard`), scaled by the best `hazard_multiplier` of any
+  window (`_death_hazard`) — with `viral_lifespan = -1` there is no window,
+  so the full hazard applies but only once bedridden, never in the dry days
+  (a host would die the very step its incubation ended, vanishing from the
+  map while still shown amber) — scaled by the best `hazard_multiplier` of any
   health center in reach (supportive care, min not product — the PPE rule);
   an incubating carrier never rolls. The ebola scenario sets the center's
   `heal_probability` to 0: care halves the hazard, recovery is surviving the
@@ -246,9 +249,12 @@ orange and the magenta slot (ΔE 6.8 and 9.0, floor 15), so a healthy being woul
 read as a sick one. Identity is carried by the brackets, the trail, the tooltip
 and the Beings list. PPE is glyphed `⛨` (`PPE_GLYPH`) wherever health is glyphed,
 so hue is never the only channel. Persona **roles** are the marker's *shape*
-(`roleShape`: ▲ ■ ⬟ ⬢ assigned to roles alphabetically, never cycled — a fifth
-role falls back to the circle; the square is axis-aligned so it never reads as
-the artifact diamond). Fill, ring and glyphs behave identically on every shape. Selection and infection must also never share a geometry: they were
+(`roleShape`: ▲ ■ ⬟ ⬢ ▼ ★ ◀ ▶ ✦ ▮ ▬ ◗ assigned to roles alphabetically, never
+cycled — a 13th role falls back to the circle). A new shape needs a matching
+text glyph and a silhouette apart from the reserved ones — artifact diamond,
+remains X, health-center plus (the square and both rects are axis-aligned for
+this) — and from the status glyphs (an hourglass is out: its glyph reads as
+the incubating ⧖). Fill, ring and glyphs behave identically on every shape. Selection and infection must also never share a geometry: they were
 concentric rings a pixel apart, and at mid cell sizes the selection ring painted
 straight over the infection ring.
 

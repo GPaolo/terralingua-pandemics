@@ -2252,8 +2252,12 @@ class OpenGridWorld:
         """Per-step chance this agent dies of the sickness.
 
         Zero at symptom onset, ramping linearly to viral_death_probability at
-        the end of the infectious window (constant at the maximum when
-        viral_lifespan is -1, since there is no window to ramp over).
+        the end of the infectious window. When viral_lifespan is -1 there is
+        no window to ramp over: the full hazard applies once the host is
+        bedridden and never during the dry days — otherwise the host would
+        die the very step its incubation ends, gone from the map while still
+        shown as incubating (with viral_mobile_days 0 that is symptom onset,
+        the old behaviour).
         Supportive care scales it down: a sick agent within reach of a health
         center dies at that center's hazard_multiplier x the usual rate.
         """
@@ -2263,7 +2267,8 @@ class OpenGridWorld:
             if not isinstance(artifact, ViralArtifact) or not artifact.symptomatic:
                 continue
             if artifact.lifespan in (np.inf, -1) or artifact.remaining_time == np.inf:
-                frac = 1.0
+                if artifact.days_symptomatic >= self.viral_mobile_days:
+                    frac = 1.0
             else:
                 frac = max(
                     frac, 1.0 - max(artifact.remaining_time, 0) / artifact.lifespan

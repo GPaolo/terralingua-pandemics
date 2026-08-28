@@ -238,9 +238,14 @@ const nameOf = (tag) => state.meta?.agent_names?.[tag] || tag;
 /* A persona role gets its own marker shape (fill and ring behave the same on
    every shape). Shapes go to roles in alphabetical order, never cycled: roles
    beyond the registry fall back to the circle. To add shapes, extend SHAPES
-   ({sides, start?, scale?, star?}), its glyph, and ROLE_SHAPE_ORDER.
-   scale evens out visual weight against the circle; the square is axis-
-   aligned so it never reads as the artifact diamond. */
+   ({sides, start?, scale?, star?, inner?} for regular polygons and stars,
+   {verts} for anything else in unit-radius space, {arc, dx?} for arcs), its
+   glyph, and ROLE_SHAPE_ORDER. Every shape needs a matching text glyph, a
+   silhouette apart from the reserved ones (artifact diamond, remains X,
+   health-center plus) and from the status glyphs (an hourglass is out: its
+   glyph reads as the incubating ⧖). scale evens out visual weight against
+   the circle; the square and both rects are axis-aligned so they never read
+   as the artifact diamond. */
 const SHAPES = {
   circle: {},
   triangle: { sides: 3, scale: 1.35 },
@@ -249,11 +254,24 @@ const SHAPES = {
   hexagon: { sides: 6, scale: 1.12 },
   triangle_down: { sides: 3, start: Math.PI / 2, scale: 1.35 },
   star: { sides: 5, star: true, scale: 1.5 },
+  triangle_left: { sides: 3, start: Math.PI, scale: 1.35 },
+  triangle_right: { sides: 3, start: 0, scale: 1.35 },
+  star_four: { sides: 4, star: true, inner: 0.4, scale: 1.55 },
+  rect_tall: { verts: [[-0.5, -1], [0.5, -1], [0.5, 1], [-0.5, 1]], scale: 1.2 },
+  rect_wide: { verts: [[-1, -0.5], [1, -0.5], [1, 0.5], [-1, 0.5]], scale: 1.2 },
+  // dx recenters the half-disc: its arc center sits on the flat edge.
+  semicircle: { arc: [-Math.PI / 2, Math.PI / 2], dx: -0.45, scale: 1.4 },
 };
-const ROLE_SHAPE_ORDER = ["triangle", "square", "pentagon", "hexagon", "triangle_down", "star"];
+const ROLE_SHAPE_ORDER = [
+  "triangle", "square", "pentagon", "hexagon", "triangle_down", "star",
+  "triangle_left", "triangle_right", "star_four", "rect_tall", "rect_wide",
+  "semicircle",
+];
 const ROLE_GLYPHS = {
   circle: "●", triangle: "▲", square: "■", pentagon: "⬟",
   hexagon: "⬢", triangle_down: "▼", star: "★",
+  triangle_left: "◀", triangle_right: "▶", star_four: "✦",
+  rect_tall: "▮", rect_wide: "▬", semicircle: "◗",
 };
 const roleOf = (tag) => state.meta?.agent_roles?.[tag] || null;
 const roleLabel = (role) => role.replace(/_/g, " ");
@@ -268,12 +286,21 @@ function roleShape(role) {
 function traceBeing(ctx, shape, cx, cy, r) {
   ctx.beginPath();
   const def = SHAPES[shape] || SHAPES.circle;
-  if (!def.sides) return ctx.arc(cx, cy, r, 0, Math.PI * 2);
   const rr = r * (def.scale ?? 1.12);
+  if (def.arc) {
+    ctx.arc(cx + (def.dx ?? 0) * rr, cy + (def.dy ?? 0) * rr, rr, def.arc[0], def.arc[1]);
+    return ctx.closePath();
+  }
+  if (def.verts) {
+    def.verts.forEach(([vx, vy], k) =>
+      k ? ctx.lineTo(cx + vx * rr, cy + vy * rr) : ctx.moveTo(cx + vx * rr, cy + vy * rr));
+    return ctx.closePath();
+  }
+  if (!def.sides) return ctx.arc(cx, cy, r, 0, Math.PI * 2);
   const start = def.start ?? -Math.PI / 2;
   const points = def.star ? def.sides * 2 : def.sides;
   for (let k = 0; k < points; k++) {
-    const rad = def.star && k % 2 ? rr * 0.45 : rr;
+    const rad = def.star && k % 2 ? rr * (def.inner ?? 0.45) : rr;
     const ang = start + (k * 2 * Math.PI) / points;
     const px = cx + rad * Math.cos(ang), py = cy + rad * Math.sin(ang);
     k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);

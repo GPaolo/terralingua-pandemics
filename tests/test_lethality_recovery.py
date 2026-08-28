@@ -119,6 +119,37 @@ def test_incubating_do_not_roll():
     print("PASS: an incubating carrier faces no lethality roll")
 
 
+def test_permanent_infection_kills_only_bedridden():
+    """viral_lifespan -1 has no window to ramp over: the full hazard applies
+    only once the host is bedridden — never in the dry days, and never the
+    very step its incubation ends (it would vanish from the map while still
+    shown as incubating)."""
+    tmp = Path(tempfile.mkdtemp())
+    env = make_env(
+        tmp,
+        viral_death_probability=1.0,
+        viral_incubation_min=3,
+        viral_incubation_max=3,
+        viral_mobile_days=2,
+    )
+    env.infect_agent(agent_tag="a")
+    for _ in range(2):
+        step_one(env)
+        assert "a" in env.agent_registry, "no roll while incubating"
+    step_one(env)  # incubation hits 0 this step
+    assert "a" in env.agent_registry, "nobody dies the step symptoms start"
+    assert env.health_state("a") == "feverish"
+    assert env._death_hazard("a") == 0.0, "no hazard during the dry days"
+    step_one(env)  # first dry day lived through
+    assert "a" in env.agent_registry, "the walking sick face no roll"
+    step_one(env)  # second dry day passes: the host goes wet and rolls in full
+    assert "a" not in env.agent_registry, "certain lethality must kill the bedridden"
+    events = [json.loads(line) for line in open(tmp / "open_gridworld.log")]
+    died = [e for e in events if e.get("event") == "AGENT_DIED"][-1]
+    assert died["reason"] == "sickness", died
+    print("PASS: with viral_lifespan -1 only the bedridden face the lethality roll")
+
+
 def test_natural_recovery_is_counted():
     tmp = Path(tempfile.mkdtemp())
     env = make_env(tmp, viral_lifespan=2)
@@ -175,6 +206,7 @@ if __name__ == "__main__":
     test_hazard_ramps_with_sickness_age()
     test_recovered_are_immune()
     test_incubating_do_not_roll()
+    test_permanent_infection_kills_only_bedridden()
     test_natural_recovery_is_counted()
     test_world_log_and_checkpoint()
     print("\nAll lethality and recovery checks passed ✅")

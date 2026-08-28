@@ -240,7 +240,8 @@ class EnvConfig:
         metadata={
             "help": "Death chance per symptomatic step at the END of the "
             "infectious window; the hazard ramps linearly from 0 at symptom "
-            "onset (0 = only starvation kills)"
+            "onset. With viral_lifespan -1 it applies in full, but only once "
+            "bedridden (0 = only starvation kills)"
         },
     )
     viral_energy_multiplier: float = field(
