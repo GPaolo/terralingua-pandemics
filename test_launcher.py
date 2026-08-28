@@ -238,6 +238,13 @@ def test_server():
     assert r.status_code == 400
     p = client.get("/api/prompts").json()
     assert p["supports_override"] and p["placeholders"]["sys_prompt"]
+    # path completion: names only, dirs get a trailing slash
+    fs = client.get("/api/fs", params={"prefix": str(ROOT / "co")}).json()
+    assert str(ROOT / "core") + "/" in fs["paths"], fs
+    fs = client.get(
+        "/api/fs", params={"prefix": str(ROOT) + "/", "dirs_only": True}
+    ).json()
+    assert all(x.endswith("/") for x in fs["paths"]), fs
     print("PASS: server API")
 
 
