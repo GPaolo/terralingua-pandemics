@@ -161,6 +161,24 @@ def test_designer_parsing():
     )
     assert messy["personas"] == [{"persona": "p"}]
     assert messy["suggested_params"] == [{"name": "grid_size", "value": 80, "why": ""}]
+    # refinement replays the current design as the assistant's own turn
+    brief = dict(
+        description="a plague town",
+        sys_prompt="SYS {{ agent_name }}",
+        agent_prompt="STEP {{ actions }}",
+        personas=[],
+        artifacts=[],
+        param_catalog=[{"name": "grid_size", "help": "", "value": 50}],
+    )
+    current = {"sys_prompt": "edited by hand", "personas": [{"persona": "p"}]}
+    msgs = designer.refine_messages(
+        **brief, current_design=current, feedback="darker tone"
+    )
+    assert msgs[:2] == designer.design_messages(**brief)
+    assert [m["role"] for m in msgs] == ["system", "user", "assistant", "user"]
+    assert "edited by hand" in msgs[2]["content"]
+    assert "darker tone" in msgs[3]["content"]
+    assert "full design, never a diff" in msgs[3]["content"]
     print("PASS: designer parsing")
 
 
