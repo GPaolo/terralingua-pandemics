@@ -6,8 +6,9 @@ restores with its checkpoint.
 
 An infection has three phases. It incubates silently, then the host is
 feverish and still able to act, then bedridden. Transmission happens by
-standing near a sick host or unburied remains, and by giving or taking energy
-with a sick host. Protective equipment lowers the chance. A health center may
+standing near a sick host or unburied remains, by giving or taking energy or
+handing over an artifact with a sick host, and by burying remains or standing
+beside the grave. Protective equipment lowers the chance. A health center may
 heal and lowers the death hazard. Recovery gives immunity.
 """
 
@@ -127,7 +128,7 @@ class EpidemicOptions(BaseModel):
         description="Chance per step of catching it from one nearby source.",
     )
     contact_multiplier: float = Field(
-        1.8, ge=0, description="Multiplier on that chance when energy changes hands."
+        1.8, ge=0, description="Multiplier on that chance when energy or an artifact changes hands."
     )
     energy_multiplier: float = Field(
         6.0,
@@ -539,7 +540,7 @@ class Epidemic(Mechanic):
     def on_step(self, env, infos: dict) -> None:
         o = self.options
         step = env.step_count
-        if self.world_log is None:
+        if self.world_log is None and hasattr(env, "grid_size"):
             self.world_log = WorldStateLogger(
                 env.log_path / "world_state.jsonl",
                 env.grid_size,
@@ -762,7 +763,12 @@ class Epidemic(Mechanic):
                 self.recover(env, tag, "recovery")
 
     def record_state(self, env) -> None:
-        """Append this step's world to world_state.jsonl, before the death phase."""
+        """Append this step's world to world_state.jsonl, before the death phase.
+
+        Grid worlds only: the file holds cells, and the viewer draws a grid.
+        """
+        if self.world_log is None:
+            return
         agents = {}
         n_infected = n_sick = n_bedridden = 0
         for tag in env.agent_registry:

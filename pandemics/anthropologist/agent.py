@@ -131,13 +131,15 @@ normal energy per day and may die with a chance that grows to death_probability
 over lifespan sick days; after lifespan sick days it recovers and is immune.
 Every being within infection_radius of a sick host or of unburied remains has
 a chance infection_probability per day to catch it; giving or taking energy and
-handing over artifacts are contacts with contact_multiplier times that chance.
+handing over artifacts are contacts with contact_multiplier times that chance,
+times the host factor.
 Protective equipment (ppe artifacts in the inventory) multiplies a being's
 chance by ppe_protection (<1); protection does not stack. A health center heals
 sick beings within its radius with heal_probability per day and multiplies
 their death chance by hazard_multiplier. A being that dies sick leaves remains
 that spread the sickness until buried or gone; burying and attending a burial
-are exposures too. Beings are told nothing about the sickness: they learn from
+are exposures too. Most beings are told nothing about the sickness; a few
+personas know about it and may tell the others. The rest learn from
 their own symptoms, from funerals, and from each other.
 
 Answer questions about the run under {run_dir} by computing, never by
@@ -172,7 +174,8 @@ do or what code you run.
   epidemic_utils and the stdlib data modules (math, statistics, itertools,
   functools, collections, json, re, csv, random, datetime, textwrap, heapq,
   bisect, pathlib); no network; file reads only inside the run and the
-  package; writes only under RUN/'epidemic_analysis/chat/'; 30s per call;
+  package; writes only under RUN/'epidemic_analysis/chat/' and the temp
+  folder; 30s per call;
   dunder attributes and eval/exec/getattr are rejected.
 
 Preloaded names in run_python:

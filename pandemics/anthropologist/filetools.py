@@ -1,7 +1,7 @@
 """Read-only file navigation for the anthropologist (Read/Grep/LS style).
 
 No code execution: plain host-side reads confined to the run directory and
-the repo, so these need no sandbox and no approval. The ~12 KB input_prompt
+the pandemics package, so these need no sandbox and no approval. The ~12 KB input_prompt
 fields are stripped from .jsonl lines before anything reaches the model.
 Every function returns a user-facing string, errors included.
 """
@@ -18,7 +18,7 @@ GLOB_CHARS = set("*?[")
 
 
 class Scope:
-    """Paths resolve against the run dir first, then the repo root."""
+    """Paths resolve against the run dir first, then the package folder."""
 
     def __init__(self, run_dir, repo_root):
         self.run_dir = Path(run_dir).resolve()

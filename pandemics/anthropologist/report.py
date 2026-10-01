@@ -4,9 +4,9 @@ Usage:
     python -m pandemics.anthropologist.report logs/<exp_name>
 
 Writes to logs/<exp_name>/epidemic_analysis/ (override with --out):
-    metrics.json, timeseries.csv, epidemic_curves.png, infections.png,
-    transmission_tree.png, secondary_cases.png, ppe.png, and — when the run
-    has them — burials.png and health_center.png
+    metrics.json, timeseries.csv, epidemic_curves.png, infections.png, ppe.png,
+    and, when the run has them, transmission_tree.png, secondary_cases.png,
+    burials.png and health_center.png
 and prints a text summary. Works on a run still in progress.
 """
 

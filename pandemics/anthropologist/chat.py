@@ -2,7 +2,7 @@
 
 Usage:
     python -m pandemics.anthropologist.chat logs/<exp_name>
-    (--model claude-opus-5 by default; needs ANTHROPIC_API_KEY or a .env)
+    (--model claude-opus-5-5 by default; needs ANTHROPIC_API_KEY or a .env)
 
 Model-written code runs in the sandbox (sandbox.py) and, unless --auto-run is
 given, only after you approve each snippet.
@@ -55,8 +55,9 @@ def main():
         return out
 
     mode = "auto-run ON" if args.auto_run else "each snippet needs your approval"
-    print(f"Anthropologist on {run_dir.name} ({args.model}; refusal fallback to "
-          f"claude-opus-4-8 enabled; {mode}). Ask about the run; 'exit' to leave.")
+    fallback = "refusal fallback on" if agent.request_options(args.model) else "no refusal fallback"
+    print(f"Anthropologist on {run_dir.name} ({args.model}; {fallback}; {mode}). "
+          "Ask about the run; 'exit' to leave.")
 
     while True:
         try:

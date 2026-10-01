@@ -560,9 +560,9 @@ function drawAgentDetail() {
         : esc(nameOf(tag)) + " is not in the world at this step."}</p>`;
     return;
   }
-  const [x, y, energy, age, nInv] = a;
+  const [x, y, energy, time, nInv] = a;
   const health = healthOf(a);
-  const maxAge = state.meta.params?.env?.agent_lifespan || 100;
+  const maxTime = state.meta.params?.env?.agent_lifespan || 100;
   const initE = state.meta.params?.env?.init_agent_energy || 100;
   const genome = state.meta.genomes[tag] || {};
   const persona = (state.meta.personas || {})[tag];
@@ -596,9 +596,9 @@ function drawAgentDetail() {
     </div>
     ${persona ? `<p class="persona">${esc(persona)}</p>` : ""}
     ${meter("Energy", energy, initE * 2, "--s3", energy == null ? "—" : Math.round(energy))}
-    ${age == null
-      ? meter("Age", 0, maxAge, "--s4", "—")
-      : meter("Age", maxAge - age, maxAge, "--s4", `${maxAge - age} / ${maxAge}`)}
+    ${time == null
+      ? meter("Time left", 0, maxTime, "--s4", "—")
+      : meter("Time left", time, Math.max(maxTime, time), "--s4", `${Math.round(time)} / ${maxTime}`)}
     <div class="stat-row" style="margin-top:10px"><span>Position</span><b>${x}:${y}</b></div>
     <div class="stat-row"><span>Inventory</span><b>${nInv}</b></div>
     ${traits ? `<h2 style="margin-top:14px">Genome</h2>${traits}` : ""}`;

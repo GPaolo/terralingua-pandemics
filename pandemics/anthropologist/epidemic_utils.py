@@ -38,7 +38,8 @@ def load_frames(run_dir):
     """world_state.jsonl as (meta, frames). Each frame has ``t``, ``agents``
     (tag -> dict of the agent fields), ``artifacts`` as a set of
     (row, col, name, kind) and ``food_total``. Changes are replayed, so every
-    frame holds the full set of artifacts on the map."""
+    frame holds the full set of artifacts on the map. A resumed run repeats
+    the steps after its checkpoint; the latest line of a step wins."""
     path = Path(run_dir) / "world_state.jsonl"
     meta, frames = None, []
     artifacts: set = set()
@@ -76,7 +77,8 @@ def load_frames(run_dir):
                 "artifacts": set(artifacts),
                 "food_total": row.get("food_total", 0.0),
             })
-    return meta, frames
+    by_t = {frame["t"]: frame for frame in frames}
+    return meta, [by_t[t] for t in sorted(by_t)]
 
 
 def load_events(run_dir):

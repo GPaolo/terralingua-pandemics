@@ -27,7 +27,7 @@ replaying a bounded number of lines. Positions are ``[row, col]``. An infinite
 energy is written as ``null``.
 
 A fresh run truncates the file. A resumed run appends to it and starts with a
-``key`` line.
+``key`` line; if the file is missing, it starts with the header.
 """
 
 import json
@@ -58,13 +58,18 @@ class WorldStateLogger:
     ):
         self.save_path = Path(filepath)
         self.save_path.parent.mkdir(parents=True, exist_ok=True)
+        header = (
+            not append
+            or not self.save_path.exists()
+            or self.save_path.stat().st_size == 0
+        )
         self.fp = open(self.save_path, "a" if append else "w", buffering=1)
 
         self._prev_food: Dict[Tuple[int, int], float] = {}
         self._prev_artifacts: Set[Tuple[int, int, str, str]] = set()
         self._need_keyframe = True
 
-        if not append:
+        if header:
             self._write(
                 {
                     "kind": "meta",

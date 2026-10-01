@@ -4,8 +4,8 @@ Layers, in order: an AST screen rejects imports outside ALLOWED_ROOTS, dunder
 attribute access and eval/exec-style names before anything runs; the code then
 executes in a separate worker process with a per-call wall-clock timeout, a
 memory cap where the OS honours it, file reads confined to the run, the
-package and the interpreter, and writes confined to the chat plots dir and
-tempdir.
+package, the interpreter, system fonts and the temp dir, and writes confined
+to the chat plots dir, the temp dir and matplotlib's own cache.
 Nothing network-capable is importable.
 
 These layers stop accidents and log-borne prompt injection, but Python cannot
