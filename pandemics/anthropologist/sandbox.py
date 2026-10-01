@@ -172,7 +172,7 @@ def _worker(run_dir: Path):
             raise PermissionError(
                 f"sandbox: {kind} of {path} denied "
                 + (f"(plots go under {chat_dir})" if write
-                   else "(outside the run/repo)")
+                   else "(outside the run and the package)")
             )
 
     real_open = builtins.open

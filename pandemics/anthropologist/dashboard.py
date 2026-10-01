@@ -96,6 +96,7 @@ class State:
             payload = json.dumps(
                 {"events": self.events, "messages": self.messages},
                 default=_jsonable,
+                indent=2,
             )
         self.session_path.parent.mkdir(parents=True, exist_ok=True)
         self.session_path.write_text(payload)

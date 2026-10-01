@@ -43,17 +43,19 @@ def build_run(options: EpidemicOptions, world: dict, seed: int, out: Path, steps
     env = OpenGridWorld(log_path=out, headless=True, **world)
     mechanic = Epidemic(options)
     env.attach(mechanic)
-    for i in range(agents):
-        env.add_agent(f"b{i}", f"b{i}", "text")
-    env.restart_env(seed=seed)
     rng = random.Random(seed)
     g = env.grid_size
+    cells = rng.sample([(r, c) for r in range(g) for c in range(g)], agents)
+    poses = {f"b{i}": cell for i, cell in enumerate(cells)}
+    for tag, cell in poses.items():
+        env.add_agent(tag, tag, "text", position=cell)
+    env.restart_env(seed=seed, agent_poses=poses)
 
     for _ in range(steps):
         if not env.agent_registry:
             break
         actions = {}
-        for tag in list(env.agent_registry):
+        for tag in sorted(env.agent_registry):
             if mechanic.health(tag) == "bedridden":
                 actions[tag] = STAY
                 continue

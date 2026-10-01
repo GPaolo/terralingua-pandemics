@@ -598,7 +598,7 @@ function drawAgentDetail() {
     ${meter("Energy", energy, initE * 2, "--s3", energy == null ? "—" : Math.round(energy))}
     ${time == null
       ? meter("Time left", 0, maxTime, "--s4", "—")
-      : meter("Time left", time, Math.max(maxTime, time), "--s4", `${Math.round(time)} / ${maxTime}`)}
+      : meter("Time left", time, Math.max(maxTime, time), "--s4", `${Math.round(time)}`)}
     <div class="stat-row" style="margin-top:10px"><span>Position</span><b>${x}:${y}</b></div>
     <div class="stat-row"><span>Inventory</span><b>${nInv}</b></div>
     ${traits ? `<h2 style="margin-top:14px">Genome</h2>${traits}` : ""}`;

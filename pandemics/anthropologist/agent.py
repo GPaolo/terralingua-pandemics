@@ -135,8 +135,8 @@ handing over artifacts are contacts with contact_multiplier times that chance,
 times the host factor.
 Protective equipment (ppe artifacts in the inventory) multiplies a being's
 chance by ppe_protection (<1); protection does not stack. A health center heals
-sick beings within its radius with heal_probability per day and multiplies
-their death chance by hazard_multiplier. A being that dies sick leaves remains
+infected beings within its radius, incubating or sick, with heal_probability
+per day and multiplies the sick ones' death chance by hazard_multiplier. A being that dies sick leaves remains
 that spread the sickness until buried or gone; burying and attending a burial
 are exposures too. Most beings are told nothing about the sickness; a few
 personas know about it and may tell the others. The rest learn from
@@ -282,8 +282,8 @@ def run_turn(
     run_python; the file tools run directly (read-only, no approval) and
     report themselves through on_tool(str). on_text(str) receives each
     assistant text block; should_stop() ends the turn at the next tool
-    boundary (history stays consistent). Raises anthropic errors upward after
-    rolling messages back to the pre-turn state."""
+    boundary (history stays consistent). Raises errors upward after rolling
+    messages back to the pre-turn state."""
     global _HANDLER, _OBSERVER, _SCOPE
     _TURN_LOCK.acquire()
     checkpoint = len(messages)
@@ -319,7 +319,7 @@ def run_turn(
                 if should_stop is not None and should_stop():
                     return last
         return last
-    except anthropic.APIError:
+    except Exception:
         del messages[checkpoint:]
         raise
     finally:

@@ -33,8 +33,8 @@ class Scope:
                 if r.exists():
                     return r
             else:
-                raise PermissionError(f"{path} is outside the run and the repo")
-        raise FileNotFoundError(f"{path} not found in the run or the repo")
+                raise PermissionError(f"{path} is outside the run and the package")
+        raise FileNotFoundError(f"{path} not found in the run or the package")
 
 
 def _clean(line, path):

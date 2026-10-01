@@ -84,6 +84,8 @@ def main():
             print("  [network error — check your connection and re-ask]")
         except anthropic.APIStatusError as e:
             print(f"  [API error {e.status_code}: {e.message} — turn dropped, re-ask]")
+        except Exception as e:
+            print(f"  [error] the turn failed: {e}")
     sandbox.close()
 
 

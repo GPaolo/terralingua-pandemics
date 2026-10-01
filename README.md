@@ -98,7 +98,7 @@ Model-written code runs in a guarded worker process: imports outside a short all
 
 ## Add a disease
 
-Copy `ebola.preset.yaml` to `<name>.preset.yaml`, set `name:` and `exp_name:` to the new name, change the `scenario_options` and the world settings, and run `terralingua <name>`. The package is general: every parameter of the sickness is a preset value.
+Copy `ebola.preset.yaml` to `<name>.preset.yaml`, set `name:` and `exp_name:` to the new name, change the `scenario_options` and the world settings, and run `terralingua <name>`. A new personas file goes inside `pandemics/`, since `personas_path` is read relative to that folder, or is given as an absolute path. The package is general: every parameter of the sickness is a preset value.
 
 ## Tests
 
