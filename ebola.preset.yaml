@@ -1,0 +1,66 @@
+name: ebola
+description: Ebola-calibrated contact sickness with incubation on a torus grid, with roles, protective equipment, a health center, remains, and burials.
+config:
+  run:
+    scenario: pandemics
+    scenario_options:
+      init_infected: 1
+      outbreak_step: 0
+      incubation_min: 2
+      incubation_max: 15
+      lifespan: 13
+      mobile_days: 4
+      mobile_infectiousness: 0.3
+      infection_radius: 1
+      infection_probability: 0.5
+      contact_multiplier: 1.8
+      energy_multiplier: 6
+      death_probability: 0.11
+      ppe_protection: 0.1
+      ppe_role: health_worker
+      ppe_per_worker: 20
+      burials: true
+      burial_infection_multiplier: 1.9
+      funeral_announcements: true
+      funeral_announcement_radius: 10
+      funeral_attendance_multiplier: 1.5
+      funeral_mourning_days: 0
+      remains_lifespan: 10
+      personas_path: personas.json
+      health_center:
+        pose: [25, 25]
+        radius: 1
+        heal_probability: 0.0
+        hazard_multiplier: 0.5
+    exp_name: ebola
+    exp_description: Ebola-calibrated contact sickness with incubation
+    max_ts: 200
+    seed: 1
+    max_parallel_workers: 20
+    save_video: false
+    live_render: false
+  agent:
+    genome: ocean_5
+    agents_name_prefix: being
+    max_history: 1
+    internal_memory_size: 150
+    use_inventory: true
+    use_colors: false
+    scenario_specific_instructions: pandemics/instructions.md
+  env:
+    world_type: grid
+    grid_size: 60
+    vision_radius: 6
+    init_agents: 150
+    min_agents: 50
+    init_agent_energy: 200
+    agent_lifespan: 250
+    food_mechanism: true
+    init_food: 500
+    food_zones: 4
+    food_spawn_rate: 50
+    drop_food_on_death: false
+    reproduction_cost: -1
+    artifact_creation_cost: 0
+    max_artifact_tokens: 200
+    max_message_length: 50

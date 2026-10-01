@@ -1,98 +1,43 @@
-
 [build-system]
-requires = ["setuptools>=70", "wheel"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "open-gridworld"
+name = "pandemics"
 version = "0.1.0"
-requires-python = "==3.12.*"
-# If you want to mirror requirements.txt here, list them under dependencies:
-# dependencies = ["numpy", "gymnasium", ...]
+description = "Contact-sickness scenarios for TerraLingua, with a run viewer and an epidemic anthropologist."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
 dependencies = [
-    "numpy",
-    "pandas",
-    "pygame",
-    "gymnasium",
-    "pettingzoo",
-    "openai",
-    "anthropic",
-    "python-dotenv",
-    "matplotlib",
-    "jupyter",
-    "networkx",
-    "scipy",
-    "umap-learn",
-    "hdbscan",
-    "torch",
-    "pillow",
-    "requests",
-    "scikit-learn",
-    "jinja2",
-    "tqdm",
-    "tiktoken",
-    "transformers",
-    "datasets",
-    "spacy",
-    "cdlib",
-    "zstandard",
-    "joblib",
-    "pydot",
-    "graphviz",
-    "mplcursors",
-    "litellm",
+    "terralingua @ git+https://github.com/cognizant-ai-lab/terralingua.git@v0.2.0",
+    "faker",
     "fastapi",
     "uvicorn",
-    "faker>=40.37.0",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "anthropic",
+    "python-dotenv",
 ]
 
-[tool.setuptools]
-package-dir = {"" = "."}
-py-modules = ["main"]
-
-[tool.setuptools.package-data]
-viz = ["static/*"]
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["core*", "analysis_scripts*", "viz*"]
-exclude = ["logs*", "plots*", "*.egg-info", "__pycache__"]
+include = ["pandemics*"]
 
+[tool.setuptools.package-data]
+pandemics = ["personas.json", "instructions.md", "viewer/static/*", "anthropologist/static/*"]
 
-[project.scripts]
-open-gridworld-run = "main:main"
-terralingua-ui = "viz.server:main"
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.ruff]
-# Format all Python files
-include = ["*.py"]
-exclude = ["__pycache__", ".venv", ".ruff_cache", ".git", "*.egg-info"]
-
-# Set the line length to match Black / PEP8-style defaults
 line-length = 88
 
-# Apply all default linting rules except F401 (unused imports)
-select = ["E", "F", "W", "I"]  # E: pycodestyle, F: pyflakes, W: warnings, I: isort
-ignore = ["F401"]
-
-# Enable import sorting (compatible with isort)
-fix = true
-
-# Show full rule explanations if desired
-show-fixes = true
-
-# Use this to format code with Ruff as well
-[tool.ruff.format]
-quote-style = "double"  # or "single" if preferred
-indent-style = "space"
-
 [tool.ruff.lint]
-# Optional: Only apply linting to these folders
-# path = ["src", "tests"]
-
-# Optional: If you're using __all__ and want to allow unused imports for that
-dummy-variable-rgx = "^_"  # allow names like _ or _var
-
-[tool.ruff.lint.per-file-ignores]
-# Example: ignore unused import warnings in __init__.py
-"__init__.py" = ["F401"]
+select = ["E", "F", "W", "I"]
+ignore = ["F401", "E501"]
