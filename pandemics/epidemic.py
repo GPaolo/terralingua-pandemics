@@ -623,7 +623,7 @@ class Epidemic(Mechanic):
             if infection is None or record["position"] is None:
                 continue
             pos = record["position"]
-            # The fork's remains spread for remains_lifespan - 1 steps; keep that window.
+            # Remains spread for remains_lifespan - 1 steps.
             lifespan = (
                 o.remains_lifespan - 1 if o.remains_lifespan > 0 else o.remains_lifespan
             )
@@ -748,7 +748,7 @@ class Epidemic(Mechanic):
                 infection["incubation"] -= 1
 
     def advance_symptoms(self, env) -> None:
-        """Count the sick steps after the spread pass, as the fork did, and recover in time."""
+        """Count the sick steps after the spread pass, and recover in time."""
         o = self.options
         step = env.step_count
         for tag, infection in list(self.state["infections"].items()):

@@ -9,7 +9,7 @@ Most beings are told nothing about the sickness. A few personas, such as the hea
 Requires Python 3.10 or newer.
 
 ```bash
-git clone git@github.com:GPaolo/terralingua-pandemics.git
+git clone https://github.com/GPaolo/terralingua-pandemics.git
 cd terralingua-pandemics
 python -m venv .venv && source .venv/bin/activate
 pip install -e .            # installs terralingua from its release tag, plus this package
