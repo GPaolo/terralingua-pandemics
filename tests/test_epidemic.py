@@ -6,6 +6,11 @@ import types
 from pathlib import Path
 
 import pytest
+from terralingua.config.compose import compose
+from terralingua.environment.grid_env import OpenGridWorld
+from terralingua.experiment import runner as runner_module
+from terralingua.experiment.runner import SimulationRunner
+from terralingua.experiment.scenario_loader import load_scenario
 
 from pandemics.artifacts import HealthCenterArtifact, PPEArtifact, RemainsArtifact
 from pandemics.epidemic import (
@@ -16,11 +21,6 @@ from pandemics.epidemic import (
     Epidemic,
     EpidemicOptions,
 )
-from terralingua.config.compose import compose
-from terralingua.environment.grid_env import OpenGridWorld
-from terralingua.experiment import runner as runner_module
-from terralingua.experiment.runner import SimulationRunner
-from terralingua.experiment.scenario_loader import load_scenario
 
 STAY = {"action": "move", "params": {"direction": "stay"}}
 

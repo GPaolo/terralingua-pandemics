@@ -1,6 +1,6 @@
-/* TerraLingua dashboard client.
-   Plain ES modules-free JS on purpose: no build step, no npm, no CDN, so the
-   dashboard works offline next to the logs it reads. */
+/* Pandemics run viewer client.
+   Plain JS without modules on purpose: no build step, no npm, no CDN, so the
+   viewer works offline next to the logs it reads. */
 
 const $ = (sel) => document.querySelector(sel);
 const api = (path) => fetch(path).then((r) => {
@@ -73,18 +73,6 @@ async function openRun(name) {
   $("#run-sub").textContent =
     `${state.meta.description || "no description"} — ${state.meta.model}`;
   $("#grid-dims").textContent = `${state.meta.grid_size}×${state.meta.grid_size}`;
-  const recon = $("#recon-badge");
-  recon.classList.toggle("hidden", state.meta.provenance !== "reconstructed");
-  // Say exactly how trustworthy this run is: it predates the per-step world log,
-  // so positions are inferred and the food layer is only what beings have seen.
-  const agree = state.meta.sighting_agreement;
-  recon.title =
-    "This run predates the per-step world log, so it was reconstructed from what " +
-    "the beings observed.\n" +
-    (agree ? `Cross-checks: ${agree[0]} of ${agree[1]} sightings agree.\n` : "") +
-    "Paths of beings nobody could see may be approximate, and the food map shows " +
-    "only cells somebody has visited.";
-  $("#legend-unknown").hidden = state.meta.food_source !== "observed";
   $("#legend-infected").hidden = !state.meta.has_viral;
   $("#legend-feverish").hidden = !state.meta.has_viral;
   $("#legend-incubating").hidden = !state.meta.has_viral;
@@ -314,16 +302,13 @@ function traceBeing(ctx, shape, cx, cy, r) {
    and the chart's line style carry the split. Hue is never the only channel. */
 const HEALTH_GLYPH = { bedridden: "☣", feverish: "♨", incubating: "⧖" };
 
+/* A being row follows meta.agent_fields: n_viral is index 5, n_sick 6,
+   n_bedridden 9. */
 function healthOf(a) {
   if (!a) return null;
-  // Schema 1 has no n_sick column (all symptomatic); pre-6 has no
-  // n_bedridden (no dry phase: every sick being was bedridden).
-  const nViral = a[5] ?? 0;
-  const nSick = a[6] ?? nViral;
-  const nBed = a[9] ?? nSick;
-  if (nBed > 0) return "bedridden";
-  if (nSick > 0) return "feverish";
-  if (nViral > 0) return "incubating";
+  if (a[9] > 0) return "bedridden";
+  if (a[6] > 0) return "feverish";
+  if (a[5] > 0) return "incubating";
   return null;
 }
 
@@ -371,10 +356,7 @@ function drawMap() {
   const { ctx, cell, n, dpr } = mapGeometry();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // Backdrop. On a reconstructed run the food layer is only what beings have
-  // seen, so the base reads as "unknown" and observed-but-empty is lighter.
-  const unknown = state.meta.food_source === "observed";
-  ctx.fillStyle = unknown ? cssVar("--plane") : cssVar("--surface-2");
+  ctx.fillStyle = cssVar("--surface-2");
   ctx.fillRect(0, 0, cell * n, cell * n);
 
   for (const [x, y, v] of state.world.food) {
@@ -395,10 +377,9 @@ function drawMap() {
 
   /* Vision radius of the selected being: an outline, not a wash. Filling these
      cells shifts their lightness, which is the very channel the food ramp
-     encodes, so a seen cell reads as a different amount of food than it holds --
-     and on a reconstructed run it tints "never observed" black into a third
-     state that means nothing. Dashed, so the soft edge of what a being can see
-     never reads as the hard edge of the selection brackets. */
+     encodes, so a seen cell reads as a different amount of food than it holds.
+     Dashed, so the soft edge of what a being can see never reads as the hard
+     edge of the selection brackets. */
   const sel = state.selected && state.world.agents[state.selected];
   if (sel && state.meta.vision_radius) {
     const r = state.meta.vision_radius;
@@ -449,9 +430,8 @@ function drawMap() {
   drawTrail(ctx, cell, n);
 
   /* Infection is the fill and selection is a frame on the cell, so the two never
-     compete for the same pixels. They used to be concentric rings a pixel apart,
-     which at mid cell sizes meant the selection ring painted straight over the
-     infection ring and a sick being looked healthy the moment you clicked it. */
+     compete for the same pixels. Two concentric rings would overlap at mid cell
+     sizes, and a sick being would look healthy the moment it is clicked. */
   for (const [tag, a] of Object.entries(state.world.agents)) {
     const [x, y] = a;
     const cx = y * cell + cell / 2, cy = x * cell + cell / 2;
@@ -785,17 +765,15 @@ function drawCharts() {
     // One axis (all counts of beings), disjoint series so they read as parts
     // of one population. Feverish shares the red (no third hue passes the
     // floor); the dash and glyph carry the split.
-    const nSick = s.n_sick || s.n_infected;
-    const nBed = s.n_bedridden || nSick;
-    const incubating = s.n_infected.map((n, i) => n - (nSick[i] ?? 0));
-    const feverish = nSick.map((n, i) => n - (nBed[i] ?? 0));
+    const incubating = s.n_infected.map((n, i) => n - s.n_sick[i]);
+    const feverish = s.n_sick.map((n, i) => n - s.n_bedridden[i]);
     pop.push({ name: "⧖ incubating", points: zip(s.t, incubating), color: cssVar("--status-warning") });
     if (feverish.some((v) => v > 0)) {
       pop.push({ name: "♨ feverish", points: zip(s.t, feverish), color: cssVar("--status-critical"), dash: true });
-      pop.push({ name: "☣ bedridden", points: zip(s.t, nBed), color: cssVar("--status-critical") });
+      pop.push({ name: "☣ bedridden", points: zip(s.t, s.n_bedridden), color: cssVar("--status-critical") });
     } else {
       // No dry phase in this run: one line, the familiar label
-      pop.push({ name: "☣ sick", points: zip(s.t, nSick), color: cssVar("--status-critical") });
+      pop.push({ name: "☣ sick", points: zip(s.t, s.n_sick), color: cssVar("--status-critical") });
     }
   }
   box.appendChild(chartCard({ title: "Population", series: pop, format: (v) => v }));
@@ -803,8 +781,7 @@ function drawCharts() {
   if (state.meta.has_viral) {
     // A share is a different unit than a count, so it gets its own card
     // rather than a second scale on the population axis.
-    const nSick = s.n_sick || s.n_infected;
-    const pct = s.t.map((t, i) => [t, s.n_agents[i] ? (100 * (nSick[i] ?? 0)) / s.n_agents[i] : 0]);
+    const pct = s.t.map((t, i) => [t, s.n_agents[i] ? (100 * s.n_sick[i]) / s.n_agents[i] : 0]);
     box.appendChild(chartCard({
       title: "☣ Sick share",
       series: [{ name: "sick / alive", points: pct, color: cssVar("--status-critical") }],
@@ -822,8 +799,8 @@ function drawCharts() {
     step: true,
   }));
 
-  // Cost rides in the tokens hero; the server only attaches cum_cost when the
-  // model is priced, so local models never show a made-up dollar figure.
+  // Cost rides in the tokens hero. It comes from costs.csv; a model the core
+  // cannot price contributes 0.
   const tok = s.tokens || [];
   const tokNow = tok.filter((r) => r.t <= state.step).pop();
   const cost = tokNow?.cum_cost;
@@ -954,7 +931,7 @@ function r0Card(viral) {
   const byGen = new Map();
   for (const c of done) {
     if (!byGen.has(c.generation)) byGen.set(c.generation, []);
-    byGen.get(c.generation).push(kids.get(c.artifact) || 0);
+    byGen.get(c.generation).push(kids.get(c.infection) || 0);
   }
   const mean = (v) => v.reduce((s, x) => s + x, 0) / v.length;
   const rows = [...byGen.entries()].sort((a, b) => a[0] - b[0]).map(([g, v]) => `
@@ -986,7 +963,7 @@ function showChain() {
   const kids = new Map();
   const roots = [];
   for (const c of chain) {
-    if (c.source && chain.some((p) => p.artifact === c.source)) {
+    if (c.source && chain.some((p) => p.infection === c.source)) {
       if (!kids.has(c.source)) kids.set(c.source, []);
       kids.get(c.source).push(c);
     } else {
@@ -999,11 +976,11 @@ function showChain() {
       ${depth ? '<span class="subtitle">↳</span>' : ""}
       <span style="color:var(--status-critical)">☣</span>
       <span class="who" style="color:${agentColor()}" data-tag="${esc(c.host)}">${esc(nameOf(c.host))}</span>
-      <span class="subtitle">step ${c.t} · ${esc(c.artifact)}` +
+      <span class="subtitle">step ${c.t} · ${esc(c.infection)}` +
         `${c.secondary ? ` · spread to ${c.secondary}` : ""}` +
         `${c.ended_at == null ? " · ongoing" : ""}</span>
     </div>` +
-    (kids.get(c.artifact) || []).sort(byT).map((k) => node(k, depth + 1)).join("");
+    (kids.get(c.infection) || []).sort(byT).map((k) => node(k, depth + 1)).join("");
   $("#chain-full").innerHTML =
     roots.sort(byT).map((r) => node(r, 0)).join("") ||
     '<p class="empty">No infections recorded.</p>';
@@ -1031,7 +1008,6 @@ function tooltipHtml(x, y) {
   let clickable = 0;
   const food = state.world.food.find((f) => f[0] === x && f[1] === y);
   if (food) html += `<div>food ${food[2]}</div>`;
-  else if (state.meta.food_source === "observed") html += "<div>never observed</div>";
   for (const [tag, a] of Object.entries(state.world.agents)) {
     if (a[0] !== x || a[1] !== y) continue;
     // Plain text tooltip, so the glyph is the only channel available here.
@@ -1089,8 +1065,8 @@ function hookTooltip() {
     if (!state.world) return;
     const { x, y, n, rect } = cellAt(e);
     if (x < 0 || y < 0 || x >= n || y >= n) return unpinTooltip();
-    // Shortcuts kept from before the pin existed: a being on the cell gets
-    // selected outright, a bare artifact opens in the panel.
+    // Shortcuts: a being on the cell gets selected outright, a bare artifact
+    // opens in the panel.
     let being = null, art = null;
     for (const [tag, a] of Object.entries(state.world.agents)) {
       if (a[0] === x && a[1] === y) being = being ?? tag;

@@ -12,12 +12,14 @@ the UI, waits for an Approve click first.
 
 import argparse
 import json
+import os
 import re
 import sys
 import threading
 from pathlib import Path
 
 import anthropic
+import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -25,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 
 from pandemics.anthropologist import agent, report
 from pandemics.anthropologist import compare as compare_mod
+from pandemics.anthropologist import epidemic_utils as eu
 from pandemics.anthropologist.sandbox import Sandbox
 
 load_dotenv()
@@ -52,10 +55,7 @@ class State:
         self._sandbox = None
         self.scope = agent.make_scope(run_dir)
         self.system = agent.build_system(run_dir)
-        try:
-            self.client = anthropic.Anthropic()
-        except anthropic.AnthropicError:
-            self.client = None  # metrics/plots still work; chat reports it
+        self.client = anthropic.Anthropic()
         self.messages = []
         self.events = []
         self.lock = threading.Lock()
@@ -160,7 +160,9 @@ def _turn(st: State, question):
         elif last is not None and last.stop_reason == "refusal":
             st.add(type="error", text="The model declined this question.")
     except anthropic.APIError as e:
-        st.add(type="error", text=f"API error: {e}. The turn was dropped — re-ask.")
+        st.add(type="error", text=f"API error: {e}. The turn was dropped; ask again.")
+    except Exception as e:
+        st.add(type="error", text=f"The turn failed: {e}")
     finally:
         st.busy = False
         st.add(type="done")
@@ -168,7 +170,7 @@ def _turn(st: State, question):
 
 
 def create_app(logs_root: Path, model: str, initial_run: str = None) -> FastAPI:
-    app = FastAPI(title="Ebola anthropologist")
+    app = FastAPI(title="Pandemics anthropologist")
     states = {}
     states_lock = threading.Lock()
     app.state.states = states
@@ -207,8 +209,6 @@ def create_app(logs_root: Path, model: str, initial_run: str = None) -> FastAPI:
 
     @app.get("/api/state")
     def state(run: str):
-        import epidemic_utils as eu
-
         run_dir = run_dir_of(run)
         metrics_path = run_dir / "epidemic_analysis" / "metrics.json"
         metrics = (json.loads(metrics_path.read_text())
@@ -248,8 +248,6 @@ def create_app(logs_root: Path, model: str, initial_run: str = None) -> FastAPI:
         question = (body.get("question") or "").strip()
         if not question:
             raise HTTPException(400, "empty question")
-        if st.client is None:
-            raise HTTPException(500, "no API credentials — set ANTHROPIC_API_KEY")
         with st.lock:
             if st.busy:
                 raise HTTPException(409, "a turn is already running")
@@ -351,12 +349,10 @@ def create_app(logs_root: Path, model: str, initial_run: str = None) -> FastAPI:
 
 
 def main():
-    import uvicorn
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", type=Path, nargs="?",
-                        default=HERE.parents[2] / "logs",
-                        help="logs root, or one run dir to open first")
+                        default=Path(os.environ.get("TL_LOGS_DIR") or Path.cwd() / "logs"),
+                        help="logs root (default: TL_LOGS_DIR, else logs/ under the working directory), or one run dir to open first")
     parser.add_argument("--model", default=agent.DEFAULT_MODEL)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8010)
@@ -369,7 +365,7 @@ def main():
     else:
         sys.exit(f"{target} is neither a logs root nor a run directory")
 
-    print(f"🩺 Ebola anthropologist → http://{args.host}:{args.port}  ({logs_root})")
+    print(f"Pandemics anthropologist: http://{args.host}:{args.port}  ({logs_root})")
     uvicorn.run(create_app(logs_root, args.model, initial),
                 host=args.host, port=args.port, log_level="warning")
 

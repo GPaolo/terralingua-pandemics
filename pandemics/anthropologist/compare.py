@@ -33,7 +33,7 @@ from pandemics.anthropologist.report import (
     top_legend,
 )
 
-# viz light-theme categorical slots, fixed order, validated on #fcfcfb.
+# viewer light-theme categorical slots, fixed order, validated on #fcfcfb.
 SLOTS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#4a3aa7"]
 MAX_SIDE_BY_SIDE = len(SLOTS)
 

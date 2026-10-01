@@ -1,21 +1,24 @@
-"""FastAPI app serving the experiment dashboard.
+"""FastAPI app that serves the run viewer.
 
-Run it alongside an experiment rather than inside it::
+Run it next to a simulation, not inside it::
 
-    python -m viz                    # serves ./logs on http://127.0.0.1:8000
-    python -m viz --logs /data/logs --port 9999
+    python -m pandemics.viewer                      # serves ./logs on http://127.0.0.1:8000
+    python -m pandemics.viewer --logs /data/logs --port 9999
 
-Keeping the server out of the simulation process is deliberate: a run costs real
-money in LLM calls and can last hours, and a web server sharing its interpreter is
-one more thing that can wedge it.
+The server stays out of the simulation process on purpose. A run costs real
+money in model calls and can last hours. A web server in the same interpreter
+is one more thing that can stop it.
 """
 
+import argparse
 import asyncio
 import json
 import os
+from collections import Counter
 from pathlib import Path
 from typing import Dict, Optional
 
+import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,58 +30,83 @@ STATIC_DIR = Path(__file__).parent / "static"
 #: How often the SSE stream re-reads the log directory while a run is live.
 POLL_SECONDS = 1.0
 
-#: model name -> prices or None, cached because the litellm import is slow.
-_PRICE_CACHE: Dict[str, Optional[tuple]] = {}
 
+def transmission(reader: RunReader) -> dict:
+    """The chain of infections and R0 per generation.
 
-def _model_prices(model: Optional[str]) -> Optional[tuple]:
-    """($/input token, $/output token) from litellm's price table, trying the
-    name as-is and through the router's MODEL_MAP; None when unknown."""
-    if not model:
-        return None
-    if model not in _PRICE_CACHE:
-        prices = None
-        try:
-            import litellm
-            from core.experiment.llm_router import MODEL_MAP
-
-            for name in (model, MODEL_MAP.get(model)):
-                entry = litellm.model_cost.get(name) if name else None
-                if entry and entry.get("input_cost_per_token") is not None:
-                    prices = (
-                        entry["input_cost_per_token"],
-                        entry.get("output_cost_per_token") or 0.0,
-                    )
-                    break
-        except Exception:
-            prices = None
-        _PRICE_CACHE[model] = prices
-    return _PRICE_CACHE[model]
-
-
-def _token_series(reader) -> list:
-    """Cumulative token counts, priced per producing model when known.
-
-    Rows without a model fall back to the run's model; models litellm does not
-    price (the locally hosted ones) genuinely cost nothing per token.
+    One node per infection, keyed by its id. A node ends when its host heals
+    (VIRAL_HEALED with that id) or dies (AGENT_DIED of the host at or after the
+    infection). A node without an end is active and is not counted: its host
+    can still spread. R0 is the mean number of children over the ended nodes
+    of generations 0 and 1.
     """
-    tokens = reader.token_totals()
-    default_model = reader.params.get("agent", {}).get("model")
-    cum_cost = 0.0
-    priced = False
-    for row in tokens:
-        for model, bucket in row.pop("by_model").items():
-            prices = _model_prices(model or default_model)
-            if prices:
-                priced = True
-                cum_cost += bucket["input"] * prices[0] + bucket["output"] * prices[1]
-        if priced:
-            row["cum_cost"] = cum_cost
-    return tokens
+    nodes: Dict[str, dict] = {}
+    for e in reader.events(["VIRAL_INFECTION"]):
+        if not e.get("infection_id"):
+            continue
+        nodes[e["infection_id"]] = {
+            "infection": e["infection_id"],
+            "source": e.get("source_infection_id"),
+            "host": e.get("agent_tag"),
+            "t": e.get("timestamp"),
+        }
+    healed_at = {
+        e["infection_id"]: e.get("timestamp")
+        for e in reader.events(["VIRAL_HEALED"])
+        if e.get("infection_id")
+    }
+    died_at: Dict[str, list] = {}
+    for e in reader.events(["AGENT_DIED"]):
+        if e.get("agent_tag") and e.get("timestamp") is not None:
+            died_at.setdefault(e["agent_tag"], []).append(e["timestamp"])
+    children = Counter(n["source"] for n in nodes.values() if n["source"])
+
+    def generation(infection: str) -> int:
+        gen = 0
+        seen = set()
+        while infection not in seen:
+            seen.add(infection)
+            parent = nodes[infection]["source"]
+            if parent not in nodes:
+                return gen
+            infection = parent
+            gen += 1
+        return gen
+
+    def ended_at(node: dict) -> Optional[int]:
+        if node["infection"] in healed_at:
+            return healed_at[node["infection"]]
+        if node["t"] is None:
+            return None
+        deaths = [t for t in died_at.get(node["host"], []) if t >= node["t"]]
+        return min(deaths) if deaths else None
+
+    by_gen: Dict[int, list] = {}
+    censored = 0
+    for infection, node in nodes.items():
+        node["generation"] = generation(infection)
+        node["secondary"] = children.get(infection, 0)
+        node["ended_at"] = ended_at(node)
+        if node["ended_at"] is None:
+            censored += 1
+        else:
+            by_gen.setdefault(node["generation"], []).append(node["secondary"])
+
+    generations = [
+        {"generation": g, "cases": len(v), "mean_secondary": sum(v) / len(v)}
+        for g, v in sorted(by_gen.items())
+    ]
+    early = by_gen.get(0, []) + by_gen.get(1, [])
+    return {
+        "chain": list(nodes.values()),
+        "generations": generations,
+        "censored": censored,
+        "r0": (sum(early) / len(early)) if early else None,
+    }
 
 
 def create_app(logs_root: Path) -> FastAPI:
-    app = FastAPI(title="TerraLingua Dashboard")
+    app = FastAPI(title="Pandemics run viewer")
     app.state.logs_root = Path(logs_root)
     app.state.readers: Dict[str, RunReader] = {}
 
@@ -124,11 +152,10 @@ def create_app(logs_root: Path) -> FastAPI:
                     "max_ts": params.get("run", {}).get("max_ts"),
                     "last_step": reader.last_step,
                     "status": reader.status(),
-                    "provenance": reader.meta()["provenance"],
                     "has_viral": reader.meta()["has_viral"],
                 }
             )
-        # Live runs first, then most recently active.
+        # Live runs first, then by name.
         runs.sort(key=lambda r: (r["status"] != "live", r["name"]), reverse=False)
         return {"runs": runs, "logs_root": str(root)}
 
@@ -192,83 +219,15 @@ def create_app(logs_root: Path) -> FastAPI:
     @app.get("/api/runs/{name}/series")
     def run_series(name: str):
         reader = get_reader(name)
-        return {**reader.series(), "tokens": _token_series(reader)}
+        return {**reader.series(), "tokens": reader.token_series()}
 
     @app.get("/api/runs/{name}/viral")
     def run_viral(name: str):
-        """Transmission chain and R0 per generation.
-
-        Mirrors ``analysis_scripts/compute_r0.py``: each infection is one host
-        episode, and its secondary cases are the events naming its artifact as
-        the source.
-        """
-        reader = get_reader(name)
-        infections = reader.events(["VIRAL_INFECTION"])
-        removed = {
-            e["artifact"]["name"]: e.get("timestamp")
-            for e in reader.events(["ARTIFACT_REMOVED"])
-            if isinstance(e.get("artifact"), dict)
-            and e["artifact"].get("art_type") == "viral"
-        }
-
-        source_of, infected_at, host_of = {}, {}, {}
-        secondary: Dict[str, int] = {}
-        for e in infections:
-            art = e["artifact"]["name"]
-            source_of[art] = e.get("source_artifact")
-            infected_at[art] = e.get("timestamp")
-            host_of[art] = e.get("agent_tag")
-            if e.get("source_artifact"):
-                secondary[e["source_artifact"]] = (
-                    secondary.get(e["source_artifact"], 0) + 1
-                )
-
-        def generation(art):
-            gen = 0
-            seen = set()
-            while source_of.get(art) is not None and art not in seen:
-                seen.add(art)
-                art = source_of[art]
-                gen += 1
-            return gen
-
-        by_gen: Dict[int, list] = {}
-        censored = 0
-        for art in source_of:
-            if art in removed:
-                by_gen.setdefault(generation(art), []).append(secondary.get(art, 0))
-            else:
-                censored += 1
-
-        generations = [
-            {"generation": g, "cases": len(v), "mean_secondary": sum(v) / len(v)}
-            for g, v in sorted(by_gen.items())
-        ]
-        early = by_gen.get(0, []) + by_gen.get(1, [])
-        return {
-            "chain": [
-                {
-                    "artifact": art,
-                    "source": source_of[art],
-                    "host": host_of[art],
-                    "t": infected_at[art],
-                    "generation": generation(art),
-                    "secondary": secondary.get(art, 0),
-                    # None = the episode was still running when the log ends,
-                    # so its secondary count is a lower bound. The timestamp
-                    # lets the client census the epidemic as of any step.
-                    "ended_at": removed.get(art),
-                }
-                for art in source_of
-            ],
-            "generations": generations,
-            "censored": censored,
-            "r0": (sum(early) / len(early)) if early else None,
-        }
+        return transmission(get_reader(name))
 
     @app.get("/api/runs/{name}/stream")
     async def stream(name: str, since: int = -1):
-        """Server-sent events: one message per newly written timestep."""
+        """Server-sent events: one message per newly written step."""
 
         async def gen():
             last = since
@@ -284,7 +243,7 @@ def create_app(logs_root: Path) -> FastAPI:
                         # The world log is written after the step, so it runs one
                         # ahead of the decisions that produced it. A live viewer
                         # wants the newest frame where the map, the chat and the
-                        # agents' reasoning all describe the same instant.
+                        # beings' reasoning all describe the same instant.
                         "last_decision_step": meta["last_decision_step"],
                         # An outbreak can start after the viewer opened the run;
                         # without this the client's has_viral stays stale and the
@@ -292,7 +251,7 @@ def create_app(logs_root: Path) -> FastAPI:
                         "has_viral": meta["has_viral"],
                         "status": reader.status(),
                         # so the spend chart moves during a live run
-                        "series": {**reader.series(), "tokens": _token_series(reader)},
+                        "series": {**reader.series(), "tokens": reader.token_series()},
                     }
                     yield f"data: {json.dumps(payload)}\n\n"
                     last = latest
@@ -321,10 +280,6 @@ def create_app(logs_root: Path) -> FastAPI:
 
 
 def main():
-    import argparse
-
-    import uvicorn
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--logs",
@@ -336,8 +291,8 @@ def main():
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
-    print(f"📊 TerraLingua dashboard → http://{args.host}:{args.port}")
-    print(f"   reading runs from {args.logs}")
+    print(f"Pandemics run viewer: http://{args.host}:{args.port}")
+    print(f"reading runs from {args.logs}")
     uvicorn.run(
         create_app(args.logs), host=args.host, port=args.port, log_level="warning"
     )

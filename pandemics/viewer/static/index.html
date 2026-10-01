@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TerraLingua</title>
+<title>Pandemics run viewer</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -16,7 +16,6 @@
     </div>
 
     <span class="badge" id="status-badge"><span class="dot"></span><span></span></span>
-    <span class="badge recon hidden" id="recon-badge">reconstructed</span>
 
     <div class="spacer"></div>
 
@@ -53,7 +52,6 @@
         <span class="key" id="legend-feverish" hidden><span class="swatch infected"></span> ♨ feverish</span>
         <span class="key" id="legend-infected" hidden><span class="swatch infected"></span> ☣ bedridden</span>
         <span class="key" id="legend-recovered" hidden><span class="swatch recovered"></span> ✓ recovered</span>
-        <span class="key" id="legend-unknown" hidden><span class="swatch unknown"></span> never observed</span>
       </div>
     </section>
 
@@ -94,7 +92,7 @@
   <div class="box">
     <h2 style="margin-top:0">Experiments</h2>
     <div id="runs"></div>
-    <p class="empty" id="runs-empty" hidden>No runs found. Start one with <code>bash run_experiment.sh</code>.</p>
+    <p class="empty" id="runs-empty" hidden>No runs found. Start one with: <code>terralingua ebola</code>.</p>
   </div>
 </div>
 

@@ -14,16 +14,12 @@ import sys
 from pathlib import Path
 
 import anthropic
-
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:
-    pass
+from dotenv import load_dotenv
 
 from pandemics.anthropologist import agent
 from pandemics.anthropologist.sandbox import Sandbox
+
+load_dotenv()
 
 DENIED = ("The user declined to run this code. Explain what it would have "
           "done, or try a different approach.")

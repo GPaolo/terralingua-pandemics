@@ -3,8 +3,9 @@
 Layers, in order: an AST screen rejects imports outside ALLOWED_ROOTS, dunder
 attribute access and eval/exec-style names before anything runs; the code then
 executes in a separate worker process with a per-call wall-clock timeout, a
-memory cap where the OS honours it, file reads confined to the run, the repo
-and the interpreter, and writes confined to the chat plots dir and tempdir.
+memory cap where the OS honours it, file reads confined to the run, the
+package and the interpreter, and writes confined to the chat plots dir and
+tempdir.
 Nothing network-capable is importable.
 
 These layers stop accidents and log-borne prompt injection, but Python cannot
@@ -13,11 +14,33 @@ dashboard is the actual security boundary. Keep it on for untrusted runs.
 """
 
 import ast
+import builtins
+import contextlib
+import io
 import json
+import os
+import signal
 import subprocess
 import sys
+import tempfile
 import threading
+import traceback
 from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+
+from pandemics.anthropologist import epidemic_utils  # noqa: E402
+
+try:
+    import resource
+except ImportError:  # not on this platform
+    resource = None
+
+PACKAGE_DIR = Path(__file__).resolve().parents[1]
 
 ALLOWED_ROOTS = {
     "math", "statistics", "itertools", "functools", "collections", "json",
@@ -69,7 +92,7 @@ class Sandbox:
 
     def _spawn(self):
         self.proc = subprocess.Popen(
-            [sys.executable, "-u", __file__, "--worker", str(self.run_dir)],
+            [sys.executable, "-u", "-m", "pandemics.anthropologist.sandbox", "--worker", str(self.run_dir)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
         )
         assert self.proc.stdout.readline().strip() == "ready"
@@ -117,34 +140,20 @@ class Sandbox:
 # ---------------------------------------------------------------- worker side
 
 def _worker(run_dir: Path):
-    import builtins
-    import contextlib
-    import io
-    import os
-    import signal
-    import tempfile
-    import traceback
+    if resource is not None:
+        try:
+            resource.setrlimit(resource.RLIMIT_AS, (4 << 30, 4 << 30))
+        except (ValueError, OSError):
+            pass
 
-    try:
-        import resource
-        resource.setrlimit(resource.RLIMIT_AS, (4 << 30, 4 << 30))
-    except (ImportError, ValueError, OSError):
-        pass
-
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    here = Path(__file__).resolve().parent
-    sys.path.insert(0, str(here))
-    import epidemic_utils as eu
+    # Model code says `import epidemic_utils`; the package module answers to it.
+    sys.modules["epidemic_utils"] = epidemic_utils
+    eu = epidemic_utils
 
     chat_dir = run_dir / "epidemic_analysis" / "chat"
     chat_dir.mkdir(parents=True, exist_ok=True)
-    repo_root = here.parents[2]
     tmp = Path(tempfile.gettempdir())
-    read_ok = [run_dir, repo_root, Path(sys.prefix), Path(sys.base_prefix),
+    read_ok = [run_dir, PACKAGE_DIR, Path(sys.prefix), Path(sys.base_prefix),
                Path.home() / ".matplotlib", Path("/System/Library/Fonts"),
                Path("/Library/Fonts"), tmp]
     write_ok = [chat_dir, tmp, Path.home() / ".matplotlib"]

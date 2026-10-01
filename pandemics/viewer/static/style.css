@@ -1,4 +1,4 @@
-/* TerraLingua dashboard.
+/* Pandemics run viewer.
    Colors come from the validated data-viz reference palette: categorical slots in
    fixed order (never cycled), a single-hue ramp for food magnitude, and reserved
    status colors that always ship with an icon or label rather than carrying
@@ -142,7 +142,6 @@ header.bar {
 .badge.live { color: var(--status-good); }
 .badge.finished { color: var(--ink-muted); }
 .badge.stalled { color: var(--status-warning); }
-.badge.recon { color: var(--status-warning); }
 
 .step-readout { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 13px; }
 
@@ -242,18 +241,14 @@ footer.charts {
   color: var(--ink-2);
 }
 .legend .key { display: inline-flex; align-items: center; gap: 6px; }
-/* The two conditional keys are toggled with [hidden], which this display rule
-   would otherwise win against -- leaving every run advertising infection and
-   unobserved ground whether or not it has either. */
+/* The conditional keys are toggled with [hidden], which this display rule
+   would otherwise win against -- leaving every run advertising infection
+   whether or not it has any. */
 .legend .key[hidden] { display: none; }
 .swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 .swatch.ramp {
   width: 46px;
   background: linear-gradient(90deg, var(--food-0), var(--food-2), var(--food-4));
-}
-.swatch.unknown {
-  background: repeating-linear-gradient(45deg, var(--surface-2) 0 3px, transparent 3px 6px);
-  border: 1px solid var(--border);
 }
 /* The map's corner brackets at swatch scale, one gradient layer per arm. Hollow
    on purpose: the mark frames the being underneath rather than replacing it. */

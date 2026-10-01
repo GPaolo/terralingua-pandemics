@@ -24,7 +24,7 @@ from matplotlib.ticker import MaxNLocator
 
 from pandemics.anthropologist import epidemic_utils as eu
 
-# Dashboard light-theme palette (viz/static/style.css); amber sits below 3:1
+# Dashboard light-theme palette (pandemics/viewer/static/style.css); amber sits below 3:1
 # on white, so amber series are always direct-labeled.
 INK, INK2 = "#0b0b0b", "#52514e"
 GRID, AXIS, SURFACE = "#e1e0d9", "#c3c2b7", "#fcfcfb"
@@ -148,19 +148,19 @@ def plot_infections(series, out_dir):
 
 def plot_transmission_tree(infections, out_dir):
     fig, ax = plt.subplots(figsize=(9, 5))
-    at = {r["artifact"]: r for r in infections}
+    at = {r["infection"]: r for r in infections}
     # Stack episodes that share (t, generation) so nodes never overlap.
     seen = {}
     pos = {}
-    for r in sorted(infections, key=lambda r: (r["t"], r["artifact"])):
+    for r in sorted(infections, key=lambda r: (r["t"], r["infection"])):
         key = (r["t"], r["generation"])
         off = seen.get(key, 0)
         seen[key] = off + 1
-        pos[r["artifact"]] = (r["t"], r["generation"] + off * 0.12)
+        pos[r["infection"]] = (r["t"], r["generation"] + off * 0.12)
     for r in infections:
-        parent = at.get(r["source_artifact"])
+        parent = at.get(r["parent"])
         if parent is not None:
-            (x0, y0), (x1, y1) = pos[parent["artifact"]], pos[r["artifact"]]
+            (x0, y0), (x1, y1) = pos[parent["infection"]], pos[r["infection"]]
             ax.plot([x0, x1], [y0, y1], color=AXIS, linewidth=1.0, zorder=1)
     # Recovered wears the dashboard's cyan ring, never a fill.
     states = [
@@ -169,12 +169,12 @@ def plot_transmission_tree(infections, out_dir):
         ("active", AMBER, SURFACE, 1.2, "still active"),
     ]
     for outcome, face, edge, lw, label in states:
-        pts = [pos[r["artifact"]] for r in infections if r["outcome"] == outcome]
+        pts = [pos[r["infection"]] for r in infections if r["outcome"] == outcome]
         if pts:
             ax.scatter(*zip(*pts), s=45, facecolor=face, edgecolors=edge,
                        linewidths=lw, zorder=2, label=label)
     for r in infections:
-        x, y = pos[r["artifact"]]
+        x, y = pos[r["infection"]]
         ax.annotate(r["host_name"] or r["host_tag"], (x, y), xytext=(4, 4),
                     textcoords="offset points", fontsize=7, color=INK2)
     ax.set_xlabel("day of infection")

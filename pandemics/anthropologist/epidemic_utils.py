@@ -1,15 +1,24 @@
-"""Loaders and epidemic metrics for a viral run under logs/<exp_name>.
+"""Loaders and epidemic metrics for a run folder of the pandemics scenario.
 
-Reads only files written as the run goes, so everything works mid-run.
-Timing rule used throughout: the world log runs one step ahead of the events,
-so frame t is paired with events stamped t-1.
+Everything reads files the run writes as it goes, so it works on a run still
+in progress: ``params.json``, ``world_state.jsonl`` (one world line per step,
+written by the mechanic) and ``open_gridworld.log`` (the event log).
+
+Timing rule. The world line for step t is written during step t, after that
+step's infections and before its deaths. So the infections of frame t are the
+``VIRAL_INFECTION`` events stamped t, and a being that dies at step t is still
+in frame t and gone from frame t+1.
 """
 
 import json
 from collections import defaultdict
 from pathlib import Path
 
-AGENT_FIELD_DEFAULTS = {"n_viral": 0, "n_sick": 0, "n_ppe": 0, "n_recovered": 0}
+from pandemics.epidemic import EpidemicOptions
+
+AGENT_FIELD_DEFAULTS = {
+    "n_viral": 0, "n_sick": 0, "n_ppe": 0, "n_recovered": 0, "n_bedridden": 0,
+}
 
 
 def load_params(run_dir) -> dict:
@@ -18,9 +27,18 @@ def load_params(run_dir) -> dict:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
+def scenario_options(params: dict) -> EpidemicOptions:
+    """The sickness settings of the run, with the defaults filled in."""
+    return EpidemicOptions.model_validate(
+        params.get("run", {}).get("scenario_options", {})
+    )
+
+
 def load_frames(run_dir):
-    """world_state.jsonl as (meta, frames), artifact deltas replayed to
-    (row, col, name) sets, missing schema fields defaulted to 0."""
+    """world_state.jsonl as (meta, frames). Each frame has ``t``, ``agents``
+    (tag -> dict of the agent fields), ``artifacts`` as a set of
+    (row, col, name, kind) and ``food_total``. Changes are replayed, so every
+    frame holds the full set of artifacts on the map."""
     path = Path(run_dir) / "world_state.jsonl"
     meta, frames = None, []
     artifacts: set = set()
@@ -79,60 +97,63 @@ def load_events(run_dir):
 
 
 def infection_records(events):
-    """One record per host-infection episode, with generation, secondary
-    count, removed_at (None = still active, i.e. censored) and outcome
-    (died / recovered / active — the host's fate, not the artifact's:
-    a corpse's remains can stay infectious long after the host died)."""
-    removed_at = {}
+    """One record per infection, from the ``VIRAL_INFECTION`` events.
+
+    ``parent`` is the infection it came from (None for an outbreak case),
+    ``generation`` the number of parent links up to an outbreak case,
+    ``secondary`` the number of infections it caused. ``removed_at`` is the
+    step of the ``VIRAL_HEALED`` event or of the host's death; None means the
+    infection is still active. ``outcome`` is died, recovered or active.
+    """
+    healed_at = {}
     deaths_by_tag = defaultdict(list)
     for e in events:
-        art = e.get("artifact") or {}
-        if e.get("event") == "ARTIFACT_REMOVED" and art.get("art_type") == "viral":
-            removed_at[art.get("name")] = e.get("timestamp")
+        if e.get("event") == "VIRAL_HEALED":
+            healed_at[e.get("infection_id")] = e.get("timestamp")
         elif e.get("event") == "AGENT_DIED":
             deaths_by_tag[e.get("agent_tag")].append(e.get("timestamp"))
 
-    records, by_name = [], {}
+    records, by_id = [], {}
     for e in events:
         if e.get("event") != "VIRAL_INFECTION":
             continue
-        art = e["artifact"]
         rec = {
-            "artifact": art["name"],
+            "infection": e.get("infection_id"),
             "strain": e.get("strain", "virus"),
             "host_tag": e.get("agent_tag"),
             "host_name": e.get("agent_name"),
             "t": e.get("timestamp"),
             "incubation": e.get("incubation", 0),
-            "source_artifact": e.get("source_artifact"),
+            "parent": e.get("source_infection_id"),
+            "source_kind": e.get("source_kind"),
             "source_tag": e.get("source_tag"),
             "source_name": e.get("source_name"),
-            "removed_at": removed_at.get(art["name"]),
             "secondary": 0,
         }
+        died_at = min(
+            (t for t in deaths_by_tag.get(rec["host_tag"], []) if t >= rec["t"]),
+            default=None,
+        )
+        healed = healed_at.get(rec["infection"])
+        if died_at is not None and (healed is None or died_at <= healed):
+            rec["removed_at"], rec["outcome"] = died_at, "died"
+        elif healed is not None:
+            rec["removed_at"], rec["outcome"] = healed, "recovered"
+        else:
+            rec["removed_at"], rec["outcome"] = None, "active"
         records.append(rec)
-        by_name[rec["artifact"]] = rec
+        by_id[rec["infection"]] = rec
 
     for rec in records:
-        parent = by_name.get(rec["source_artifact"])
+        parent = by_id.get(rec["parent"])
         if parent is not None:
             parent["secondary"] += 1
     for rec in records:
         gen, cur = 0, rec
-        while cur is not None and cur["source_artifact"] is not None:
-            cur = by_name.get(cur["source_artifact"])
+        while cur is not None and cur["parent"] is not None:
+            cur = by_id.get(cur["parent"])
             gen += 1
         rec["generation"] = gen
-        # Death inside the episode window; tags can be reused by respawns,
-        # so a death stamped before the infection is a different being.
-        died = any(
-            t is not None and rec["t"] is not None and t >= rec["t"]
-            and (rec["removed_at"] is None or t <= rec["removed_at"])
-            for t in deaths_by_tag.get(rec["host_tag"], [])
-        )
-        rec["outcome"] = ("died" if died
-                          else "recovered" if rec["removed_at"] is not None
-                          else "active")
     return records
 
 
@@ -150,17 +171,16 @@ def burial_records(events):
     return [
         {"t": e.get("timestamp"), "tag": e.get("agent_tag"),
          "name": e.get("agent_name"), "infected": bool(e.get("infected")),
-         "artifact": (e.get("artifact") or {}).get("name")}
+         "remains": e.get("remains")}
         for e in events if e.get("event") == "BURIAL"
     ]
 
 
 def health_centers(events):
-    """Every seeded health center's name, pose and care radius. The radius is
-    not serialized into events; the env default (1) is assumed if absent."""
+    """Every seeded health center's name, cell and care radius."""
     return [
         {"name": (e.get("artifact") or {}).get("name"),
-         "pose": tuple((e.get("artifact") or {}).get("pose") or ()),
+         "pose": tuple(e.get("position") or ()),
          "radius": int((e.get("artifact") or {}).get("radius", 1))}
         for e in events
         if e.get("event") == "ARTIFACT_ADDED"
@@ -169,8 +189,8 @@ def health_centers(events):
 
 
 def care_series(frames, centers, grid_size):
-    """Per-frame health-center reach: beings inside any center's care radius
-    (their death hazard is scaled by hazard_multiplier), split by sickness."""
+    """Per-frame health-center reach: beings inside any center's care radius,
+    split by sickness."""
     if not centers or not grid_size:
         return []
 
@@ -196,7 +216,7 @@ def care_series(frames, centers, grid_size):
 
 
 def ppe_names(events):
-    """Names of every PPE artifact the run created (ARTIFACT_ADDED, art_type ppe)."""
+    """Names of every protective equipment artifact the run created."""
     return {
         (e.get("artifact") or {}).get("name")
         for e in events
@@ -206,8 +226,7 @@ def ppe_names(events):
 
 
 def ppe_transfers(events):
-    """Successful PPE pickups, drops and gifts. Transfer events carry only a
-    name and are logged on failure too, hence the name-set and status filters."""
+    """Successful pickups, drops and gifts of protective equipment."""
     names = ppe_names(events)
     out = []
     for e in events:
@@ -226,9 +245,9 @@ def ppe_transfers(events):
 
 
 def status_series(frames, infections=(), deaths=()):
-    """Per-frame population counts; susceptible, incubating, sick and
-    recovered are disjoint (recovery is permanent immunity). Virus deaths
-    are the ones the env stamps reason "sickness"."""
+    """Per-frame population counts. Susceptible, incubating, sick and
+    recovered are disjoint, since recovery gives immunity. Virus deaths are
+    the deaths with reason "sickness"."""
     new_by_t, dead_by_t = defaultdict(int), defaultdict(int)
     virus_dead_by_t = defaultdict(int)
     for r in infections:
@@ -246,7 +265,7 @@ def status_series(frames, infections=(), deaths=()):
         recovered = sum(
             1 for a in agents if a["n_recovered"] > 0 and a["n_viral"] == 0
         )
-        cum_inf += new_by_t.get(fr["t"] - 1, 0)
+        cum_inf += new_by_t.get(fr["t"], 0)
         cum_dead += dead_by_t.get(fr["t"] - 1, 0)
         cum_dead_virus += virus_dead_by_t.get(fr["t"] - 1, 0)
         series.append({
@@ -258,7 +277,7 @@ def status_series(frames, infections=(), deaths=()):
             "pct_sick": 100.0 * sick / len(agents) if agents else 0.0,
             "recovered": recovered,
             "ppe_carriers": sum(1 for a in agents if a["n_ppe"] > 0),
-            "new_infections": new_by_t.get(fr["t"] - 1, 0),
+            "new_infections": new_by_t.get(fr["t"], 0),
             "cum_infections": cum_inf,
             "cum_deaths": cum_dead,
             "cum_deaths_virus": cum_dead_virus,
@@ -268,74 +287,45 @@ def status_series(frames, infections=(), deaths=()):
     return series
 
 
-def exposure_records(frames, infections, grid_size, radius=1):
-    """Exposure-steps reconstructed from positions (the env does not log
-    failed transmissions): one record per step per susceptible being with a
-    symptomatic source in range. Assumes a single strain."""
-    viral_names = {r["artifact"] for r in infections}
-    newly_by_t = defaultdict(set)
-    for r in infections:
-        newly_by_t[r["t"]].add(r["host_tag"])
-
-    def dist(a, b):
-        dr, dc = abs(a[0] - b[0]), abs(a[1] - b[1])
-        return max(min(dr, grid_size - dr), min(dc, grid_size - dc))
-
-    records = []
-    for fr in frames:
-        tau = fr["t"] - 1
-        if tau < 0:
-            continue
-        newly = newly_by_t.get(tau, set())
-        # Beings infected this very step were not yet sources at spread time.
-        sources = [
-            (tag, (a["row"], a["col"]))
-            for tag, a in fr["agents"].items()
-            if a["n_sick"] > 0 and tag not in newly
-        ]
-        # (row, col, name) before schema 5, (row, col, name, kind) after.
-        sources += [(None, (a[0], a[1])) for a in fr["artifacts"]
-                    if a[2] in viral_names]
-        if not sources:
-            continue
-        for tag, a in fr["agents"].items():
-            if a["n_viral"] > 0 and tag not in newly:
-                continue  # already hosting: immune to the strain
-            pos = (a["row"], a["col"])
-            contacts = sum(
-                1 for s_tag, s_pos in sources
-                if s_tag != tag and dist(pos, s_pos) <= radius
-            )
-            if contacts > 0 or tag in newly:
-                records.append({
-                    "t": tau, "tag": tag, "ppe": a["n_ppe"] > 0,
-                    "contacts": contacts, "infected": tag in newly,
-                })
-    return records
+def exposure_records(events):
+    """One record per chance to catch the sickness, from the
+    ``VIRAL_EXPOSURE`` events. ``ppe`` is True when protective equipment
+    lowered the chance."""
+    return [
+        {"t": e.get("timestamp"), "tag": e.get("agent_tag"),
+         "source_kind": e.get("source_kind"),
+         "probability": e.get("probability"), "protection": e.get("protection"),
+         "ppe": (e.get("protection") or 1.0) < 1.0,
+         "infected": bool(e.get("infected"))}
+        for e in events if e.get("event") == "VIRAL_EXPOSURE"
+    ]
 
 
 def ppe_efficiency(exposures, configured_protection=None):
-    """Transmission rates split by PPE; protection_realized is the with/without
-    rate ratio, the empirical counterpart of the ppe_protection multiplier."""
+    """Transmission rates split by protective equipment. ``protection_realized``
+    is the with/without rate ratio, the measured counterpart of the
+    ``ppe_protection`` setting. ``exposure_steps`` counts distinct
+    (step, being) pairs, ``contacts`` counts single chances."""
     groups = {
-        True: {"exposure_steps": 0, "contacts": 0, "infections": 0},
-        False: {"exposure_steps": 0, "contacts": 0, "infections": 0},
+        True: {"exposure_steps": set(), "contacts": 0, "infections": 0},
+        False: {"exposure_steps": set(), "contacts": 0, "infections": 0},
     }
     for e in exposures:
         g = groups[e["ppe"]]
-        g["exposure_steps"] += 1
-        g["contacts"] += e["contacts"]
+        g["exposure_steps"].add((e["t"], e["tag"]))
+        g["contacts"] += 1
         g["infections"] += int(e["infected"])
 
     def rates(g):
+        steps = len(g["exposure_steps"])
         return {
-            **g,
+            "exposure_steps": steps,
+            "contacts": g["contacts"],
+            "infections": g["infections"],
             "rate_per_contact": (
                 g["infections"] / g["contacts"] if g["contacts"] else None
             ),
-            "rate_per_exposure_step": (
-                g["infections"] / g["exposure_steps"] if g["exposure_steps"] else None
-            ),
+            "rate_per_exposure_step": g["infections"] / steps if steps else None,
         }
 
     with_ppe, without_ppe = rates(groups[True]), rates(groups[False])
@@ -355,8 +345,8 @@ def ppe_efficiency(exposures, configured_protection=None):
 
 
 def r0_table(infections):
-    """Mean secondary infections per completed episode by generation — the
-    compute_r0.py estimator (censored excluded, gens 0-1 give R0)."""
+    """Mean secondary infections per completed infection, by generation.
+    Active infections are left out; generations 0 and 1 give R0."""
     by_gen, censored = defaultdict(list), 0
     for r in infections:
         if r["removed_at"] is None:
@@ -381,30 +371,27 @@ def r0_table(infections):
 
 
 def serial_intervals(infections):
-    """Days between an infection and each infection it caused."""
-    at = {r["artifact"]: r["t"] for r in infections}
+    """Steps between an infection and each infection it caused."""
+    at = {r["infection"]: r["t"] for r in infections}
     return [
-        r["t"] - at[r["source_artifact"]]
+        r["t"] - at[r["parent"]]
         for r in infections
-        if r["source_artifact"] in at and r["t"] is not None
+        if r["parent"] in at and r["t"] is not None
     ]
 
 
 def compute_all(run_dir):
-    """Everything at once: (metrics, series, infections, exposures);
-    metrics is the JSON-safe dict report.py writes out."""
+    """Everything at once: (metrics, series, infections, exposures).
+    ``metrics`` is the JSON-safe dict report.py writes out."""
     run_dir = Path(run_dir)
     params = load_params(run_dir)
-    env_p = params.get("env", {})
+    options = scenario_options(params)
     meta, frames = load_frames(run_dir)
     events = load_events(run_dir)
     infections = infection_records(events)
     deaths = death_records(events)
     series = status_series(frames, infections, deaths)
-
-    grid = (meta or {}).get("grid_size") or env_p.get("grid_size")
-    radius = env_p.get("viral_infection_radius", 1)
-    exposures = exposure_records(frames, infections, grid, radius) if grid else []
+    exposures = exposure_records(events)
 
     hosts = {r["host_tag"] for r in infections}
     first_at = {}
@@ -439,7 +426,7 @@ def compute_all(run_dir):
             ),
         },
         "outbreak": {
-            "index_cases": sum(1 for r in infections if r["source_artifact"] is None),
+            "index_cases": sum(1 for r in infections if r["source_kind"] == "outbreak"),
             "infections": len(infections),
             "unique_hosts": len(hosts),
             "attack_rate": len(hosts) / len(ever_alive) if ever_alive else None,
@@ -464,7 +451,7 @@ def compute_all(run_dir):
                 k: sum(1 for tr in ppe_transfers(events) if tr["kind"] == k)
                 for k in ("ARTIFACT_PICKUP", "ARTIFACT_DROP", "GIVE_ARTIFACT")
             },
-            "efficiency": ppe_efficiency(exposures, env_p.get("ppe_protection")),
+            "efficiency": ppe_efficiency(exposures, options.ppe_protection),
         },
     }
     return metrics, series, infections, exposures

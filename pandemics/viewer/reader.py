@@ -1,65 +1,103 @@
-"""Incremental readers for an experiment's log directory.
+"""Readers for one run folder of the pandemics scenario.
 
-A run is followed while it is still being written, so every reader here tails its
-file from a stored byte offset instead of re-parsing from the top. The only
-sources used are the ones the simulation flushes as it goes:
+The viewer follows a run while it is still being written. Every reader here
+tails its file from a stored byte offset. It never parses a file again from
+the top. A run folder holds these files.
 
-===========================  =========================================
-``world_state.jsonl``        per-step world snapshot (see world_logger)
-``open_gridworld.log``       sparse world events, incl. VIRAL_INFECTION
-``agent_logs/<tag>.jsonl``   per-tick action, message, internal memory
-``agent_logs/<tag>_genome.json``   personality traits
-``agent_logs/token_counts.jsonl``  LLM spend
-``params.json``              config snapshot
-===========================  =========================================
+``world_state.jsonl``
+    Written by the mechanic, one line per step. Line 1 is a ``meta`` header.
+    It gives ``grid_size``, ``max_food_value`` and ``agent_fields``, the order
+    of the values in each being's row. Every later line has ``kind`` (``key``
+    or ``delta``), ``t``, ``agents`` (tag to row), ``food`` and ``artifacts``.
+    A ``key`` line gives food and artifacts in full under ``set``. A ``delta``
+    line gives the changes under ``add`` and ``del``. An artifact entry is
+    ``[row, col, name, kind]``. Each line also carries ``food_total``,
+    ``n_agents``, ``n_infected``, ``n_sick`` and ``n_bedridden``. The line for
+    step T is written before that step's energy drain and deaths.
 
-Deliberately unused: ``messages.json``, ``artifacts.json``, ``food_counts.json``
-and ``agent_names.json`` are only written by ``env.close()``, so they do not
-exist mid-run. Everything they contain is derived from the tailable files above,
-which keeps live and replay on one code path.
+``open_gridworld.log``
+    JSON lines ``{"timestamp": T, "event": NAME, ...}``. The world logs
+    ``ENV_RESET``, ``AGENT_ADDED``, ``AGENT_DIED``, the ``ARTIFACT_*`` events,
+    ``SET_STATE_CKPT`` on a resume and ``END_RUN`` when the run closes. The
+    mechanic logs ``IDENTITY`` (name, role and persona of a new being),
+    ``VIRAL_INFECTION``, ``VIRAL_HEALED``, ``VIRAL_EXPOSURE`` and ``BURIAL``.
+    The file is only appended to. A re-run under the same name starts with a
+    new ``ENV_RESET``.
+
+``agent_logs/<tag>.jsonl``
+    One line per decision of a being. ``timestamp`` is a string. ``action``
+    holds ``action``, ``message`` and ``params``. ``observation`` holds
+    ``incoming_broadcasts``, ``energy``, ``time`` and ``inventory``.
+    ``internal_memory`` is the being's note to itself.
+    ``agent_logs/<tag>_genome.json`` maps a trait to a value. A scripted run
+    has no ``agent_logs`` folder.
+
+``costs.csv``
+    Header ``timestep,cost_usd,input_tokens,output_tokens``. One row per step
+    with the totals over all beings.
+
+``run_status.json``
+    ``simulation.status`` is ``running``, ``complete``, ``stopped_early`` or
+    ``failed``.
+
+``params.json``
+    The run configuration, with ``agent``, ``env`` and ``run`` sections.
 """
 
 import json
+import time
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional
 
-#: A run with no END_RUN whose newest log was touched within this many seconds is
-#: considered live. Long LLM steps mean this has to tolerate slow ticks.
+from pandemics.state_log import AGENT_FIELDS
+
+#: A running simulation whose newest log was touched within this many seconds is
+#: live. A model call can take long, so this tolerates slow steps.
 LIVE_GRACE_SECONDS = 180
 
-#: Dropped on ingest: ~12 KB per agent per tick and fully reconstructible from
-#: the other fields.
+#: Dropped on ingest. They are large and the viewer does not show them.
 _HEAVY_AGENT_FIELDS = ("input_prompt", "available_actions")
+
+#: Artifact types that are simulation state, not texts written by beings.
+STATE_ARTIFACT_TYPES = ("viral", "ppe", "health_center", "remains")
+
+
+def _iter_lines(path: Path, offset: int) -> tuple[List[str], int]:
+    """Complete lines from ``offset`` on, and the new offset.
+
+    A line-buffered writer can leave a partial final line. That line stays
+    unread, so the next refresh picks it up once it is complete.
+    """
+    if not path.exists():
+        return [], offset
+
+    lines = []
+    with open(path, "rb") as f:
+        f.seek(offset)
+        for raw in f:
+            if not raw.endswith(b"\n"):
+                break
+            offset += len(raw)
+            line = raw.decode("utf-8", errors="replace").strip()
+            if line:
+                lines.append(line)
+    return lines, offset
 
 
 def _iter_json_lines(path: Path, offset: int) -> tuple[Iterator[dict], int]:
-    """Parse whole JSON lines from ``offset``, returning them and the new offset.
-
-    A line-buffered writer can leave a partial final line; that line is left
-    unconsumed so the next refresh picks it up once complete.
-    """
-    if not path.exists():
-        return iter(()), offset
-
+    """Parse the complete JSON lines from ``offset`` on. Damaged lines are skipped."""
+    lines, offset = _iter_lines(path, offset)
     records = []
-    with open(path, "r") as f:
-        f.seek(offset)
-        for line in f:
-            if not line.endswith("\n"):
-                break  # partial write, retry next refresh
-            offset += len(line.encode("utf-8"))
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
+    for line in lines:
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
     return iter(records), offset
 
 
 class RunReader:
-    """Incrementally materializes one experiment directory."""
+    """Reads one run folder and keeps what it has read so far."""
 
     def __init__(self, run_dir: Path | str):
         self.dir = Path(run_dir)
@@ -67,15 +105,14 @@ class RunReader:
 
         self._offsets: Dict[str, int] = {}
         self._world_meta: dict = {}
-        # Raw per-step records, indexed by timestep. Food/artifacts stay in delta
-        # form; a full map is materialized on demand from the nearest keyframe.
+        # Raw per-step records, keyed by step. Food and artifacts stay in delta
+        # form; a full map is built on demand from the nearest keyframe.
         self._steps: Dict[int, dict] = {}
         self._keyframes: List[int] = []
         self._events: List[dict] = []
         self._agent_ticks: Dict[str, Dict[int, dict]] = {}
         self._genomes: Dict[str, dict] = {}
-        self._personas: Dict[str, str] = {}
-        self._tokens: Dict[int, Dict[str, dict]] = {}
+        self._costs: Dict[int, dict] = {}
         self._params: Optional[dict] = None
 
     # ---------- ingestion ----------
@@ -85,15 +122,15 @@ class RunReader:
         self._read_world_state()
         self._read_events()
         self._read_agent_logs()
-        self._read_tokens()
+        self._read_costs()
 
     def _reset_if_truncated(self):
-        """Start over if a file got shorter than what we already consumed.
+        """Start over if the world file got shorter than what was already read.
 
-        Re-running an experiment under an existing ``exp_name`` rewrites
-        ``world_state.jsonl`` from scratch (and deleting the directory shrinks
-        everything). Reading from a stale byte offset would then splice the tail
-        of a new run onto the head of an old one.
+        A fresh run under an existing name rewrites ``world_state.jsonl`` from
+        the start, and deleting the folder shrinks everything. Reading from a
+        stale offset would then join the tail of a new run to the head of an
+        old one.
         """
         world = self.dir / "world_state.jsonl"
         offset = self._offsets.get("world", 0)
@@ -112,8 +149,8 @@ class RunReader:
             t = r.get("t")
             if t is None:
                 continue
-            # A re-run of the same exp_name appends and rewinds the clock; the
-            # latest record for a timestep wins.
+            # A resumed run appends and repeats the steps after its checkpoint.
+            # The latest record for a step wins.
             if kind == "key":
                 if t not in self._steps:
                     self._keyframes.append(t)
@@ -132,8 +169,6 @@ class RunReader:
         if not log_dir.is_dir():
             return
         for path in sorted(log_dir.glob("*.jsonl")):
-            if path.name == "token_counts.jsonl":
-                continue
             tag = path.stem
             key = f"agent:{tag}"
             records, offset = _iter_json_lines(path, self._offsets.get(key, 0))
@@ -153,23 +188,21 @@ class RunReader:
             except (OSError, json.JSONDecodeError):
                 pass
 
-        for path in sorted(log_dir.glob("*_persona.txt")):
-            tag = path.name[: -len("_persona.txt")]
-            if tag in self._personas:
-                continue
-            try:
-                self._personas[tag] = path.read_text().strip()
-            except OSError:
-                pass
-
-    def _read_tokens(self):
-        records, offset = _iter_json_lines(
-            self.dir / "agent_logs" / "token_counts.jsonl",
-            self._offsets.get("tokens", 0),
+    def _read_costs(self):
+        lines, offset = _iter_lines(
+            self.dir / "costs.csv", self._offsets.get("costs", 0)
         )
-        self._offsets["tokens"] = offset
-        for r in records:
-            self._tokens.setdefault(int(r["timestep"]), {})[r["agent_tag"]] = r
+        self._offsets["costs"] = offset
+        for line in lines:
+            try:
+                t, cost, tokens_in, tokens_out = line.split(",")[:4]
+                self._costs[int(t)] = {
+                    "cost": float(cost),
+                    "input": int(tokens_in),
+                    "output": int(tokens_out),
+                }
+            except ValueError:
+                continue  # the header line
 
     # ---------- accessors ----------
     @property
@@ -187,17 +220,18 @@ class RunReader:
         return max(self._steps) if self._steps else -1
 
     def status(self) -> str:
-        """``finished`` | ``live`` | ``stalled``.
+        """``live``, ``stalled`` or ``finished``.
 
-        Keyed off END_RUN rather than ``video.mp4`` (what ``get_exp_folders`` in
-        ``core/utils/analysis_utils.py`` uses), because the video only appears
-        after ffmpeg has run — far too late to drive a live view.
+        ``run_status.json`` decides when it exists: any simulation status other
+        than ``running`` means finished. Without the file, an ``END_RUN`` event
+        of the current run means finished. A run that is not finished is live
+        while its newest log was touched within :data:`LIVE_GRACE_SECONDS`.
         """
-        import time
-
-        # Current-run events only: a re-run under the same name would otherwise
-        # inherit the previous run's END_RUN and report "finished" while live.
-        if any(e.get("event") == "END_RUN" for e in self._current_run_events()):
+        simulation = self._simulation_status()
+        if simulation is None:
+            if any(e.get("event") == "END_RUN" for e in self._current_run_events()):
+                return "finished"
+        elif simulation != "running":
             return "finished"
 
         newest = 0.0
@@ -214,8 +248,18 @@ class RunReader:
             return "live"
         return "stalled"
 
+    def _simulation_status(self) -> Optional[str]:
+        """``simulation.status`` of ``run_status.json``. None without a readable file."""
+        try:
+            data = json.loads((self.dir / "run_status.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        return (data.get("simulation") or {}).get("status")
+
     def _agent_names(self) -> Dict[str, str]:
-        """tag -> display name, from the live event log (personas rename agents)."""
+        """tag -> display name, from the reset and the additions of the current run."""
         names: Dict[str, str] = {}
         for e in self._current_run_events():
             if e.get("event") == "ENV_RESET":
@@ -224,18 +268,16 @@ class RunReader:
                 names[e["agent_tag"]] = e.get("agent_name") or e["agent_tag"]
         return names
 
-    def _agent_roles(self) -> Dict[str, str]:
-        """tag -> persona role, only for beings whose persona declares one."""
-        roles: Dict[str, str] = {}
-        for e in self._current_run_events():
-            if e.get("event") == "ENV_RESET":
-                roles.update(e.get("agent_roles") or {})
-            elif e.get("event") == "AGENT_ADDED" and e.get("agent_role"):
-                roles[e["agent_tag"]] = e["agent_role"]
-        return roles
+    def _identities(self) -> Dict[str, dict]:
+        """tag -> the IDENTITY event of the being, with its name, role and persona."""
+        return {
+            e["agent_tag"]: e
+            for e in self._current_run_events()
+            if e.get("event") == "IDENTITY" and e.get("agent_tag")
+        }
 
     def _agent_deaths(self) -> Dict[str, list]:
-        """tag -> [{t, reason}, ...]; a list because respawns can reuse a tag."""
+        """tag -> [{t, reason}, ...]; a list because a tag can be used again."""
         deaths: Dict[str, list] = {}
         for e in self._current_run_events():
             if e.get("event") == "AGENT_DIED" and e.get("agent_tag"):
@@ -249,13 +291,14 @@ class RunReader:
         env = params.get("env", {})
         run = params.get("run", {})
         agent = params.get("agent", {})
-        # Every roster the run has ever shown, so beings that died mid-run still
-        # appear (greyed out) and the map never has an agent the UI cannot name.
-        # Falls back cleanly when agent_logs is absent or lags the world log.
+        # Every being the run has ever shown, so beings that died mid-run still
+        # appear (greyed out) and the map never has a being the UI cannot name.
+        # Works when agent_logs is absent or lags behind the world log.
         tags = set(self._agent_ticks) | set(self._genomes)
         for record in self._steps.values():
             tags.update(record.get("agents", {}))
         tags = sorted(tags)
+        identities = self._identities()
         return {
             "name": self.name,
             "description": run.get("exp_description", ""),
@@ -268,10 +311,10 @@ class RunReader:
             "last_step": self.last_step,
             # The world outlives the last decision by one step, so the final
             # frame has positions but no actions. The UI lands here instead.
-            # Bounded by last_step because the agent logs are opened in append
-            # mode: re-running an exp_name leaves the previous run's later
-            # timestamps in the file, and an unbounded max would point the UI at
-            # a step this run never reached.
+            # Bounded by last_step because the agent logs are only appended to:
+            # a re-run under the same name leaves the previous run's later
+            # steps in the file, and an unbounded max would point the UI at a
+            # step this run never reached.
             "last_decision_step": max(
                 (
                     t
@@ -281,16 +324,17 @@ class RunReader:
                 ),
                 default=self.last_step,
             ),
-            "provenance": self._world_meta.get("provenance", "recorded"),
-            "food_source": self._world_meta.get("food_source", "actual"),
-            "sighting_agreement": self._world_meta.get("sighting_agreement"),
             "agent_fields": self._world_meta.get("agent_fields", []),
             "agents": tags,
             "agent_names": self._agent_names(),
-            "agent_roles": self._agent_roles(),
+            "agent_roles": {
+                tag: e["role"] for tag, e in identities.items() if e.get("role")
+            },
             "agent_deaths": self._agent_deaths(),
             "genomes": self._genomes,
-            "personas": self._personas,
+            "personas": {
+                tag: e["persona"] for tag, e in identities.items() if e.get("persona")
+            },
             "has_viral": any(
                 e.get("event") == "VIRAL_INFECTION"
                 for e in self._current_run_events()
@@ -299,7 +343,7 @@ class RunReader:
         }
 
     def world_at(self, t: int) -> Optional[dict]:
-        """Materialize the full world at timestep ``t`` from the nearest keyframe."""
+        """The full world at step ``t``, built from the nearest keyframe."""
         if t not in self._steps:
             return None
 
@@ -316,25 +360,22 @@ class RunReader:
             r = self._steps.get(ts)
             if r is None:
                 continue
-            # Schema 5 artifact entries are [x, y, name, kind]; older files
-            # have no kind. Cells store (name, kind) pairs either way.
             if r["kind"] == "key":
                 food = {(x, y): v for x, y, v in r["food"].get("set", [])}
                 artifacts = {}
-                for x, y, name, *rest in r["artifacts"].get("set", []):
-                    artifacts.setdefault((x, y), []).append((name, *rest))
+                for x, y, name, kind in r["artifacts"].get("set", []):
+                    artifacts.setdefault((x, y), []).append((name, kind))
             else:
                 for x, y, v in r["food"].get("add", []):
                     food[(x, y)] = v
                 for x, y in r["food"].get("del", []):
                     food.pop((x, y), None)
-                for x, y, name, *rest in r["artifacts"].get("add", []):
-                    artifacts.setdefault((x, y), []).append((name, *rest))
-                for x, y, name, *rest in r["artifacts"].get("del", []):
+                for x, y, name, kind in r["artifacts"].get("add", []):
+                    artifacts.setdefault((x, y), []).append((name, kind))
+                for x, y, name, kind in r["artifacts"].get("del", []):
                     cell = artifacts.get((x, y))
-                    entry = (name, *rest)
-                    if cell and entry in cell:
-                        cell.remove(entry)
+                    if cell and (name, kind) in cell:
+                        cell.remove((name, kind))
                         if not cell:
                             del artifacts[(x, y)]
 
@@ -351,16 +392,12 @@ class RunReader:
             "food_total": r.get("food_total", 0.0),
             "n_agents": r.get("n_agents", len(r["agents"])),
             "n_infected": r.get("n_infected", 0),
-            # Schema 1 predates the incubation phase: every infection there was
-            # symptomatic from the start. Same fallbacks as series().
-            "n_sick": r.get("n_sick", r.get("n_infected", 0)),
-            "n_bedridden": r.get(
-                "n_bedridden", r.get("n_sick", r.get("n_infected", 0))
-            ),
+            "n_sick": r.get("n_sick", 0),
+            "n_bedridden": r.get("n_bedridden", 0),
         }
 
     def agent_tick(self, tag: str, t: int) -> Optional[dict]:
-        """One agent's decision at a timestep: action, message, internal memory."""
+        """One being's decision at a step: action, message, internal memory."""
         rec = self._agent_ticks.get(tag, {}).get(t)
         if rec is None:
             return None
@@ -377,14 +414,13 @@ class RunReader:
             "energy": obs.get("energy"),
             "time": obs.get("time"),
             "inventory": obs.get("inventory", []),
-            "heard": obs.get("message", {}),
+            "heard": obs.get("incoming_broadcasts", {}),
         }
 
     def chat(self, lo: int, hi: int) -> List[dict]:
-        """Broadcast messages in ``[lo, hi]``, in timestep then agent order.
+        """Broadcast messages in ``[lo, hi]``, in step then being order.
 
-        Derived from the agent logs rather than ``messages.json`` so it works
-        while the run is still going.
+        Read from the agent logs, so it works while the run is still going.
         """
         out = []
         for tag, ticks in self._agent_ticks.items():
@@ -405,15 +441,15 @@ class RunReader:
         return out
 
     def _current_run_events(self) -> List[dict]:
-        """Events belonging to the current run only.
+        """Events of the current run only.
 
-        Every logger appends, so re-running an ``exp_name`` leaves the previous
-        run's events in front of the current ones — stale infections, artifacts
-        and even an old END_RUN. A fresh start is an ENV_RESET *not* immediately
-        followed by SET_STATE_CKPT (that pair is a ``--resume``, which continues
-        the same run and must keep its history). The run's preamble — agents and
-        init artifacts are logged at step 0 *before* the reset — is kept by
-        walking back over the timestamp-0 events in front of it.
+        The event log is only appended to. A re-run under the same name leaves
+        the previous run's events in front of the current ones: old infections,
+        old artifacts and an old END_RUN. A fresh start is an ENV_RESET that is
+        not followed at once by SET_STATE_CKPT. That pair is a resume, which
+        continues the same run and keeps its history. The identities, beings
+        and seeded artifacts of a run are logged at step 0 before its reset.
+        They are kept by walking back over the step-0 events in front of it.
         """
         start = 0
         for i, e in enumerate(self._events):
@@ -440,15 +476,15 @@ class RunReader:
         return [e for e in current if e.get("event") in wanted]
 
     def artifacts(self) -> List[dict]:
-        """Artifacts with their edit history, rebuilt from the event stream."""
+        """Artifacts with their edit history, built from the event stream."""
         by_name: Dict[str, dict] = {}
         for e in self._current_run_events():
             art = e.get("artifact")
             if not isinstance(art, dict) or "name" not in art:
                 continue
-            # Viral, PPE and health-center artifacts are simulation state, not
-            # authored content; the map and the being badges cover them.
-            if art.get("art_type") in ("viral", "ppe", "health_center"):
+            # State artifacts are not authored texts. The map and the being
+            # badges show them.
+            if art.get("art_type") in STATE_ARTIFACT_TYPES:
                 continue
             event = e.get("event")
             if event == "ARTIFACT_ADDED":
@@ -465,7 +501,7 @@ class RunReader:
                     continue
                 who = {"agent_tag": e.get("agent_tag"), "t": e.get("timestamp")}
                 if event == "ARTIFACT_INTERACTION":
-                    # The action string tells an edit from a destroy; a destroy
+                    # The action string tells an edit from a destroy. A destroy
                     # leaves the payload alone, so copying it is still correct.
                     who["action"] = e.get("action")
                     entry["editors"].append(who)
@@ -483,76 +519,59 @@ class RunReader:
                     entry["removed_at"] = e.get("timestamp")
         return sorted(by_name.values(), key=lambda a: a.get("created_at", 0))
 
-    def token_totals(self) -> List[dict]:
-        """Cumulative LLM spend per timestep, split by model in ``by_model``
-        (records that predate the ``model`` field land under ``""``)."""
+    def token_series(self) -> List[dict]:
+        """Token and cost totals per step, with running sums.
+
+        Bounded by the last recorded step. The cost file is only appended to,
+        so a re-run under the same name can leave later rows of a previous run.
+        """
         out = []
         cum_in = cum_out = 0
-        for t in sorted(self._tokens):
-            step_in = step_out = 0
-            by_model: Dict[str, dict] = {}
-            for r in self._tokens[t].values():
-                step_in += r["total_input_tokens"]
-                step_out += r["total_output_tokens"]
-                bucket = by_model.setdefault(
-                    r.get("model") or "", {"input": 0, "output": 0}
-                )
-                bucket["input"] += r["total_input_tokens"]
-                bucket["output"] += r["total_output_tokens"]
-            cum_in += step_in
-            cum_out += step_out
+        cum_cost = 0.0
+        for t in sorted(self._costs):
+            if t > self.last_step:
+                break
+            row = self._costs[t]
+            cum_in += row["input"]
+            cum_out += row["output"]
+            cum_cost += row["cost"]
             out.append(
                 {
                     "t": t,
-                    "input": step_in,
-                    "output": step_out,
+                    "input": row["input"],
+                    "output": row["output"],
                     "cum_input": cum_in,
                     "cum_output": cum_out,
-                    "by_model": by_model,
+                    "cum_cost": cum_cost,
                 }
             )
         return out
 
     def series(self) -> dict:
-        """Per-timestep aggregates for the footer charts."""
+        """Per-step counts for the footer charts."""
         ts = sorted(self._steps)
+        rows = [self._steps[t] for t in ts]
+        fields = self._world_meta.get("agent_fields") or AGENT_FIELDS
+        viral, ppe, recovered = (
+            fields.index(name) for name in ("n_viral", "n_ppe", "n_recovered")
+        )
         return {
             "t": ts,
-            "food_total": [self._steps[t].get("food_total", 0.0) for t in ts],
-            "n_agents": [self._steps[t].get("n_agents", 0) for t in ts],
-            "n_infected": [self._steps[t].get("n_infected", 0) for t in ts],
-            # Schema 1 runs have no n_sick: every infection there was
-            # symptomatic from the start, so it matches n_infected.
-            "n_sick": [
-                self._steps[t].get("n_sick", self._steps[t].get("n_infected", 0))
-                for t in ts
-            ],
-            # Pre-schema-6 runs have no dry phase: bedridden matches sick.
-            "n_bedridden": [
-                self._steps[t].get(
-                    "n_bedridden",
-                    self._steps[t].get("n_sick", self._steps[t].get("n_infected", 0)),
-                )
-                for t in ts
-            ],
-            # Carriers counted from the agent rows (n_ppe is index 7, schema 3);
-            # rows from older runs are shorter and count as 0.
+            "food_total": [r.get("food_total", 0.0) for r in rows],
+            "n_agents": [r.get("n_agents", 0) for r in rows],
+            "n_infected": [r.get("n_infected", 0) for r in rows],
+            "n_sick": [r.get("n_sick", 0) for r in rows],
+            "n_bedridden": [r.get("n_bedridden", 0) for r in rows],
             "n_ppe": [
-                sum(
-                    1
-                    for a in self._steps[t].get("agents", {}).values()
-                    if len(a) > 7 and a[7]
-                )
-                for t in ts
+                sum(1 for a in r.get("agents", {}).values() if a[ppe]) for r in rows
             ],
-            # SIR-style recovered: cleared at least one infection (index 8,
-            # schema 4) and currently hosts none.
+            # Recovered: cleared at least one infection and hosts none now.
             "n_recovered": [
                 sum(
                     1
-                    for a in self._steps[t].get("agents", {}).values()
-                    if len(a) > 8 and a[8] and not a[5]
+                    for a in r.get("agents", {}).values()
+                    if a[recovered] and not a[viral]
                 )
-                for t in ts
+                for r in rows
             ],
         }
