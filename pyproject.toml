@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 dependencies = [
-    "terralingua @ git+https://github.com/cognizant-ai-lab/terralingua.git@v0.2.0",
+    "terralingua @ git+https://github.com/cognizant-ai-lab/terralingua.git@v0.2.1",
     "faker",
     "pydantic",
     "fastapi",

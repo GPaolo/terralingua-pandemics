@@ -38,6 +38,8 @@ A run writes `logs/<exp_name>/` under the working directory. Set `TL_LOGS_DIR` i
 - `instructions.md`: empty on purpose.
 - `state_log.py`: writes the per-step world state file the two tools read.
 
+The package also declares which options apply only when another option turns a rule on, for example the burial multipliers without burials. A run that sets such an option gets a warning at start, and `python -m terralingua.config evaluate --preset ebola` lists every option with its state.
+
 ### How the sickness works
 
 1. At `outbreak_step`, `init_infected` beings catch it. The infection incubates for a random number of steps between `incubation_min` and `incubation_max`. An incubating being passes nothing on and is told nothing.
