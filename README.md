@@ -92,6 +92,10 @@ The model navigates the run folder with read-only tools (`list_files`, `read_fil
 
 Model-written code runs in a guarded worker process: imports outside a short allowlist (numpy, pandas, matplotlib, the metrics module and the standard library's data modules), dunder attribute access and `eval`-style names are rejected before anything runs; each call has a 30 second limit and a memory cap; file reads are confined to the run folder, this package and the interpreter; writes to the chat plots folder. Python cannot be fully sandboxed in-language, so the approval step is the real security boundary. Keep it on for runs you do not trust.
 
+## Calibrate the transmission probability
+
+`python -m pandemics.calibrate_r0` runs scripted epidemics without a model on a small world with the preset's sickness settings, and prints the realized R0 for each candidate `infection_probability`, pooled over seeds. Beings drift toward food, give energy to bedridden neighbours and sometimes bury remains, with no protective equipment and no health center. Options: `--preset`, `--probs`, `--seeds`, `--steps`, `--index` (index cases per run), `--agents`, `--grid`, `--food`, `--spawn`, and `--keep DIR` to keep the runs.
+
 ## Add a disease
 
 Copy `ebola.preset.yaml` to `<name>.preset.yaml`, change the `scenario_options` and the world settings, and run `terralingua <name>`. The package is general: every parameter of the sickness is a preset value.

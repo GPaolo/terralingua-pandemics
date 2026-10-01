@@ -50,6 +50,7 @@ config:
   env:
     world_type: grid
     grid_size: 60
+    dynamic_grid_scaling: false
     vision_radius: 6
     init_agents: 150
     min_agents: 50
