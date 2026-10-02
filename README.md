@@ -12,7 +12,7 @@ Requires Python 3.10 or newer.
 git clone https://github.com/GPaolo/terralingua-pandemics.git
 cd terralingua-pandemics
 python -m venv .venv && source .venv/bin/activate
-pip install -e .            # installs terralingua from its release tag, plus this package
+pip install -e .            # installs terralingua from its main branch, plus this package
 cp .env.example .env        # put your model key there
 ```
 
@@ -27,6 +27,17 @@ terralingua --list                             # every preset found under this f
 ```
 
 A run writes `logs/<exp_name>/` under the working directory. Set `TL_LOGS_DIR` in the shell to write and read runs somewhere else. `--resume` restarts a run from its latest checkpoint.
+
+### From the launcher
+
+The [TerraLingua launcher](https://github.com/GPaolo/terralingua_launcher) is a web page that configures and starts runs. Install it in the same environment and point it at this folder:
+
+```bash
+pip install git+https://github.com/GPaolo/terralingua_launcher.git
+terralingua-launcher --workdir .
+```
+
+Pick the `ebola` preset, change settings in the form, and launch. The page also starts the viewer and the anthropologist below with its "Open viewer" and "Open anthropologist" buttons.
 
 ## The scenario
 

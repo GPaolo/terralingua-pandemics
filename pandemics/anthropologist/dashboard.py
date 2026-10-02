@@ -354,11 +354,13 @@ def main():
     parser.add_argument("path", type=Path, nargs="?",
                         default=Path(os.environ.get("TL_LOGS_DIR") or Path.cwd() / "logs"),
                         help="logs root (default: TL_LOGS_DIR, else logs/ under the working directory), or one run dir to open first")
+    parser.add_argument("--logs", type=Path, default=None,
+                        help="logs root; the launcher passes it, and it wins over the positional path")
     parser.add_argument("--model", default=agent.DEFAULT_MODEL)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8010)
     args = parser.parse_args()
-    target = args.path.resolve()
+    target = (args.logs or args.path).resolve()
     if (target / "world_state.jsonl").exists():
         logs_root, initial = target.parent, target.name
     elif target.is_dir():
