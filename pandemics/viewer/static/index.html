@@ -16,6 +16,11 @@
     </div>
 
     <span class="badge" id="status-badge"><span class="dot"></span><span></span></span>
+    <span class="run-controls" id="run-controls" hidden>
+      <button type="button" id="stop-run" title="Stop after the current step, as Ctrl-C does; the checkpoint is kept">Stop</button>
+      <button type="button" id="kill-run" class="danger" title="End the process at once; nothing is saved">Hard stop</button>
+      <span class="subtitle" id="stop-msg"></span>
+    </span>
 
     <div class="spacer"></div>
 

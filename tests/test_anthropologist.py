@@ -13,11 +13,12 @@ from tests.test_epidemic import FAST, make_env, step
 OPTIONS = {"init_infected": 1, "incubation_min": 1, "incubation_max": 1}
 
 
-def scripted_run(logs_root, name, steps=6):
+def scripted_run(logs_root, name, steps=6, options=None):
     """A run folder written by the mechanic: two beings side by side, one outbreak."""
     run_dir = logs_root / name
     run_dir.mkdir(parents=True)
-    env, mechanic = make_env(run_dir, [(2, 2), (2, 3), (7, 7)], OPTIONS, init_food=10, food_mechanism=True)
+    env, mechanic = make_env(run_dir, [(2, 2), (2, 3), (7, 7)], {**OPTIONS, **(options or {})},
+                             init_food=10, food_mechanism=True)
     for _ in range(steps):
         step(env)
     env.logger.fp.flush()
@@ -58,6 +59,19 @@ def test_report_writes_metrics_and_plots(tmp_path):
     for name in ("epidemic_curves.png", "infections.png", "transmission_tree.png", "secondary_cases.png", "ppe.png"):
         assert (out / name).exists(), name
     assert (out / "timeseries.csv").read_text().count("\n") >= 6
+
+
+def test_report_plots_the_health_center(tmp_path):
+    centers = tmp_path / "health_centers.json"
+    centers.write_text(json.dumps([{"pose": [2, 3], "radius": 1, "hazard_multiplier": 0.25}]))
+    run_dir = scripted_run(tmp_path, "run1", options={"health_centers_path": str(centers)})
+    report.generate(run_dir)
+    assert (run_dir / "epidemic_analysis" / "health_center.png").exists()
+    found = eu.health_centers(eu.load_events(run_dir))
+    assert found[0]["pose"] == (2, 3) and found[0]["hazard_multiplier"] == 0.25
+    assert eu.care_coverage(found, 10) == 9
+    care = eu.care_series(eu.load_frames(run_dir)[1], found, 10)
+    assert care and care[-1]["in_care"] == 2  # both beings next to the center
 
 
 def test_compare_two_runs(tmp_path):

@@ -179,15 +179,31 @@ def burial_records(events):
 
 
 def health_centers(events):
-    """Every seeded health center's name, cell and care radius."""
+    """Every seeded health center's name, cell, care radius and care parameters."""
     return [
         {"name": (e.get("artifact") or {}).get("name"),
          "pose": tuple(e.get("position") or ()),
-         "radius": int((e.get("artifact") or {}).get("radius", 1))}
+         "radius": int((e.get("artifact") or {}).get("radius", 1)),
+         "hazard_multiplier": float((e.get("artifact") or {}).get("hazard_multiplier", 0.5)),
+         "heal_probability": float((e.get("artifact") or {}).get("heal_probability", 0.0))}
         for e in events
         if e.get("event") == "ARTIFACT_ADDED"
         and (e.get("artifact") or {}).get("art_type") == "health_center"
     ]
+
+
+def torus_distance(a, b, grid_size):
+    dr, dc = abs(a[0] - b[0]), abs(a[1] - b[1])
+    return max(min(dr, grid_size - dr), min(dc, grid_size - dc))
+
+
+def care_coverage(centers, grid_size):
+    """Cells inside at least one center's care radius."""
+    return sum(
+        1 for r in range(grid_size) for c in range(grid_size)
+        if any(torus_distance((r, c), ctr["pose"], grid_size) <= ctr["radius"]
+               for ctr in centers)
+    )
 
 
 def care_series(frames, centers, grid_size):
@@ -195,17 +211,12 @@ def care_series(frames, centers, grid_size):
     split by sickness."""
     if not centers or not grid_size:
         return []
-
-    def dist(a, b):
-        dr, dc = abs(a[0] - b[0]), abs(a[1] - b[1])
-        return max(min(dr, grid_size - dr), min(dc, grid_size - dc))
-
     series = []
     for fr in frames:
         agents = list(fr["agents"].values())
         in_care = [
             a for a in agents
-            if any(dist((a["row"], a["col"]), c["pose"]) <= c["radius"]
+            if any(torus_distance((a["row"], a["col"]), c["pose"], grid_size) <= c["radius"]
                    for c in centers)
         ]
         series.append({

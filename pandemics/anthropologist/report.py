@@ -14,6 +14,8 @@ import argparse
 import csv
 import json
 import sys
+from collections import Counter
+from itertools import accumulate
 from pathlib import Path
 
 import matplotlib
@@ -46,27 +48,62 @@ def style():
 
 
 def label_end(ax, xs, ys, text):
-    if xs:
-        ax.annotate(text, (xs[-1], ys[-1]), xytext=(5, 0),
-                    textcoords="offset points", va="center",
-                    fontsize=9, color=INK)
+    label_ends(ax, [(xs, ys, text)])
 
 
 def label_ends(ax, entries):
-    """Direct labels at each line's end, nudged apart when finals coincide."""
+    """Direct labels past each line's end. Lines ending on the same value share
+    one label; a label pushed off its line by a neighbour gets a hairline leader."""
+    entries = [e for e in entries if e[0]]
     if not entries:
         return
     lo, hi = ax.get_ylim()
-    min_gap = (hi - lo) * 0.045
-    placed = []
-    for xs, ys, text in sorted(entries, key=lambda e: e[1][-1]):
-        y = ys[-1]
-        if placed and y - placed[-1] < min_gap:
-            y = placed[-1] + min_gap
-        placed.append(y)
-        ax.annotate(text, (xs[-1], y), xytext=(5, 0),
-                    textcoords="offset points", va="center",
-                    fontsize=9, color=INK)
+    x0, x1 = ax.get_xlim()
+    min_gap, pad = (hi - lo) * 0.05, (x1 - x0) * 0.01
+    groups = {}
+    for xs, ys, text in entries:
+        groups.setdefault(ys[-1], []).append((xs[-1], text))
+    placed = None
+    for y_true, items in sorted(groups.items()):
+        x_end, text = items[-1][0], " / ".join(t for _, t in items)
+        y = y_true if placed is None else max(y_true, placed + min_gap)
+        placed = y
+        if y == y_true:
+            ax.annotate(text, (x_end + pad, y), va="center", fontsize=9, color=INK)
+        else:
+            ax.annotate(text, (x_end, y_true), xytext=(x_end + 3 * pad, y),
+                        textcoords="data", va="center", fontsize=9, color=INK,
+                        arrowprops=dict(arrowstyle="-", color=AXIS, lw=0.8,
+                                        shrinkA=0, shrinkB=1))
+
+
+def step_plot(ax, xs, ys, **kw):
+    """A daily value holds through its day: draw it as steps, the last day included."""
+    if not xs:
+        return xs, ys
+    xs, ys = list(xs) + [xs[-1] + 1], list(ys) + [ys[-1]]
+    ax.plot(xs, ys, drawstyle="steps-post", **kw)
+    return xs, ys
+
+
+def day_axis(ax, ts, room=0.14):
+    """Days start at the first frame; the free space sits on the right, under the labels."""
+    if ts:
+        span = ts[-1] + 1 - ts[0]
+        ax.set_xlim(ts[0], ts[-1] + 1 + max(1.0, span * room))
+
+
+def count_axis(ax):
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+
+
+def subtitle(ax, text, dy=3):
+    ax.annotate(text, (0, 1), xycoords="axes fraction", xytext=(0, dy),
+                textcoords="offset points", fontsize=9, color=INK2)
+
+
+# Bars for one day span that day, like the steps above them.
+BARS = dict(width=1.0, align="edge", edgecolor=SURFACE, linewidth=0.6)
 
 
 def top_legend(ax, ncols):
@@ -87,6 +124,7 @@ def plot_epidemic_curves(series, out_dir):
     ts = [s["t"] for s in series]
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(9, 8.5), sharex=True,
                                         gridspec_kw={"height_ratios": [3, 2, 2]})
+    day_axis(ax1, ts, room=0.10)
     entries = []
     for key, color, label, dashed in [
         ("susceptible", BEING, "susceptible", False),
@@ -94,23 +132,21 @@ def plot_epidemic_curves(series, out_dir):
         ("sick", RED, "sick", False),
         ("recovered", CYAN, "recovered (immune)", True),
     ]:
-        ys = [s[key] for s in series]
-        ax1.plot(ts, ys, color=color, linestyle="--" if dashed else "-", label=label)
-        entries.append((ts, ys, label))
+        xs, ys = step_plot(ax1, ts, [s[key] for s in series], color=color,
+                           linestyle="--" if dashed else "-", label=label)
+        entries.append((xs, ys, label))
     label_ends(ax1, entries)
+    count_axis(ax1)
     ax1.set_ylabel("beings")
     ax1.set_title("Epidemic curves (the four states are disjoint)", pad=26)
     top_legend(ax1, ncols=4)
-    ax1.margins(x=0.10)
 
     # Same red as the sick count above: one entity, one color, its own axis
     # (a share is a different unit than a count, never a second scale).
-    pct = [s["pct_sick"] for s in series]
-    ax2.plot(ts, pct, color=RED)
-    label_end(ax2, ts, pct, "sick / alive")
+    xs, ys = step_plot(ax2, ts, [s["pct_sick"] for s in series], color=RED)
+    label_end(ax2, xs, ys, "sick / alive")
     ax2.set_ylabel("% of alive")
     ax2.set_title("Sick share of the living")
-    ax2.margins(x=0.10)
 
     # Red↔ink sits in the CVD 6–8 band, so cause is never hue-alone:
     # line style and the end labels carry it too.
@@ -119,30 +155,36 @@ def plot_epidemic_curves(series, out_dir):
         ("cum_deaths_virus", RED, "virus", False),
         ("cum_deaths_other", INK2, "other causes", True),
     ]:
-        ys = [s[key] for s in series]
-        ax3.plot(ts, ys, color=color, linestyle="--" if dashed else "-", label=label)
-        entries.append((ts, ys, label))
+        xs, ys = step_plot(ax3, ts, [s[key] for s in series], color=color,
+                           linestyle="--" if dashed else "-", label=label)
+        entries.append((xs, ys, label))
     label_ends(ax3, entries)
+    count_axis(ax3)
     ax3.set_xlabel("day")
     ax3.set_ylabel("cumulative deaths")
     ax3.set_title("Deaths by cause", pad=26)
     top_legend(ax3, ncols=2)
-    ax3.margins(x=0.10)
     return save(fig, out_dir, "epidemic_curves.png")
 
 
-def plot_infections(series, out_dir):
+def plot_infections(series, infections, out_dir):
     ts = [s["t"] for s in series]
+    seeded = Counter(r["t"] for r in infections if r["parent"] is None)
+    index = [seeded.get(t, 0) for t in ts]
+    caught = [max(s["new_infections"] - seeded.get(s["t"], 0), 0) for s in series]
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 5.5), sharex=True)
-    ax1.bar(ts, [s["new_infections"] for s in series], color=RED, width=1.0)
+    day_axis(ax1, ts, room=0.08)
+    ax1.bar(ts, index, color=BEING, label="index cases (seeded)", **BARS)
+    ax1.bar(ts, caught, bottom=index, color=RED, label="caught in the run", **BARS)
+    count_axis(ax1)
     ax1.set_ylabel("new infections / day")
-    ax1.set_title("Incidence")
-    ys = [s["cum_infections"] for s in series]
-    ax2.plot(ts, ys, color=RED)
-    label_end(ax2, ts, ys, "total")
+    ax1.set_title("Incidence", pad=26)
+    top_legend(ax1, ncols=2)
+    xs, ys = step_plot(ax2, ts, [s["cum_infections"] for s in series], color=RED)
+    label_end(ax2, xs, ys, "total")
+    count_axis(ax2)
     ax2.set_ylabel("cumulative infections")
     ax2.set_xlabel("day")
-    ax2.margins(x=0.08)
     return save(fig, out_dir, "infections.png")
 
 
@@ -156,7 +198,7 @@ def plot_transmission_tree(infections, out_dir):
         key = (r["t"], r["generation"])
         off = seen.get(key, 0)
         seen[key] = off + 1
-        pos[r["infection"]] = (r["t"], r["generation"] + off * 0.12)
+        pos[r["infection"]] = (r["t"], r["generation"] + off * 0.3)
     for r in infections:
         parent = at.get(r["parent"])
         if parent is not None:
@@ -173,13 +215,21 @@ def plot_transmission_tree(infections, out_dir):
         if pts:
             ax.scatter(*zip(*pts), s=45, facecolor=face, edgecolors=edge,
                        linewidths=lw, zorder=2, label=label)
-    for r in infections:
-        x, y = pos[r["infection"]]
-        ax.annotate(r["host_name"] or r["host_tag"], (x, y), xytext=(4, 4),
-                    textcoords="offset points", fontsize=7, color=INK2)
+    # Names alternate above/below along each generation so close cases stay legible.
+    for g in {r["generation"] for r in infections}:
+        days = sorted({r["t"] for r in infections if r["generation"] == g})
+        for r in infections:
+            if r["generation"] != g:
+                continue
+            up = days.index(r["t"]) % 2 == 0
+            ax.annotate(r["host_name"] or r["host_tag"], pos[r["infection"]],
+                        xytext=(4, 5 if up else -5), textcoords="offset points",
+                        va="bottom" if up else "top", fontsize=7, color=INK2)
     ax.set_xlabel("day of infection")
     ax.set_ylabel("generation")
-    ax.set_title("Transmission tree (index cases at generation 0)")
+    ax.set_title("Transmission tree", pad=20)
+    subtitle(ax, "one dot per infection, at the day it was caught; a line joins "
+                 "each case to its infector. Index cases sit at generation 0")
     if infections:
         ax.set_yticks(sorted({r["generation"] for r in infections}))
         ax.legend(loc="upper left", fontsize=9)
@@ -198,119 +248,151 @@ def plot_secondary_cases(infections, r0, out_dir):
                          (r0["overall_mean_r"], ax1.get_ylim()[1] * 0.95),
                          xytext=(5, 0), textcoords="offset points",
                          fontsize=9, color=INK)
+    count_axis(ax1)
     ax1.set_xlabel("secondary infections per completed episode")
     ax1.set_ylabel("episodes")
     ax1.set_title("Secondary case distribution")
     rows = r0["per_generation"]
     if rows:
         gens = [row["generation"] for row in rows]
-        ax2.bar(gens, [row["mean_secondary"] for row in rows], color=BEING, width=0.7)
+        means = [row["mean_secondary"] for row in rows]
+        ax2.bar(gens, means, color=BEING, width=0.7)
         for row in rows:
             ax2.annotate(f"{row['mean_secondary']:.2f} (n={row['cases']})",
                          (row["generation"], row["mean_secondary"]),
                          xytext=(0, 3), textcoords="offset points",
                          ha="center", fontsize=8, color=INK)
         ax2.set_xticks(gens)
+        ax2.set_ylim(0, max(1.0, max(means)) * 1.25)
+    # R = 1 is the threshold: above it the outbreak grows, below it dies out.
+    ax2.axhline(1, color=INK2, linewidth=1.0, linestyle="--")
+    ax2.annotate("R = 1", (1, 1), xycoords=("axes fraction", "data"),
+                 xytext=(-4, 3), textcoords="offset points", ha="right",
+                 fontsize=9, color=INK2)
     ax2.set_xlabel("generation")
     ax2.set_ylabel("mean secondary infections")
     ax2.set_title("R by generation")
-    ax2.margins(y=0.15)
     return save(fig, out_dir, "secondary_cases.png")
 
 
 def plot_burials(burials, series, out_dir):
     ts = [s["t"] for s in series]
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 5.5), sharex=True)
-    per_day = {t: 0 for t in ts}
-    for b in burials:
-        if b["t"] in per_day:
-            per_day[b["t"]] += 1
-    ax1.bar(ts, [per_day[t] for t in ts], color=BEING, width=1.0)
-    ax1.yaxis.set_major_locator(MaxNLocator(integer=True))
+    day_axis(ax1, ts, room=0.24)
+    per_day = Counter(b["t"] for b in burials)
+    ax1.bar(ts, [per_day.get(t, 0) for t in ts], color=BEING, **BARS)
+    count_axis(ax1)
     ax1.set_ylabel("burials / day")
     ax1.set_title("Burials")
 
-    cum = cum_inf = 0
-    cums, cum_infs = [], []
-    for t in ts:
-        cum += per_day[t]
-        cum_inf += sum(1 for b in burials if b["t"] == t and b["infected"])
-        cums.append(cum)
-        cum_infs.append(cum_inf)
-    entries = [(ts, cums, "burials")]
-    ax2.plot(ts, cums, color=BEING)
+    cums = list(accumulate(per_day.get(t, 0) for t in ts))
+    cum_infs = list(accumulate(
+        sum(1 for b in burials if b["t"] == t and b["infected"]) for t in ts))
+    xs, ys = step_plot(ax2, ts, cums, color=BEING)
+    entries = [(xs, ys, "burials")]
     if cum_infs and cum_infs[-1]:
-        ax2.plot(ts, cum_infs, color=RED)
-        entries.append((ts, cum_infs, "graves that infected the digger"))
+        # Dashed so the burials line beneath stays visible where the two coincide.
+        xs, ys = step_plot(ax2, ts, cum_infs, color=RED, linestyle="--")
+        entries.append((xs, ys, "graves that infected the digger"))
     label_ends(ax2, entries)
-    ax2.yaxis.set_major_locator(MaxNLocator(integer=True))
+    count_axis(ax2)
     ax2.set_ylabel("cumulative")
     ax2.set_xlabel("day")
-    ax2.margins(x=0.22)
     return save(fig, out_dir, "burials.png")
 
 
-def plot_health_center(care, out_dir):
+def describe_centers(centers, grid):
+    def span(vals):
+        lo, hi = min(vals), max(vals)
+        return f"{lo:g}" if lo == hi else f"{lo:g}–{hi:g}"
+
+    n = len(centers)
+    text = (f"{n} center{'s' if n > 1 else ''}, care radius "
+            f"{span([c['radius'] for c in centers])}: "
+            f"{eu.care_coverage(centers, grid)} of {grid * grid} cells. "
+            f"A sick being standing inside has its daily death chance "
+            f"×{span([c['hazard_multiplier'] for c in centers])}")
+    heal = [c["heal_probability"] for c in centers]
+    if max(heal) > 0:
+        text += f" and a {span(heal)} chance per day to heal"
+    return text
+
+
+def plot_health_center(care, centers, grid, out_dir):
     ts = [s["t"] for s in care]
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 5.5), sharex=True)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 6), sharex=True)
+    day_axis(ax1, ts, room=0.22)
     # Blue is the protective state (the PPE rule): under care = hazard scaled.
     entries = []
     for key, color, label in [
-        ("in_care", BEING, "beings in reach"),
-        ("sick_total", RED, "sick, total"),
-        ("sick_in_care", BLUE, "sick, under care"),
+        ("in_care", BEING, "anyone inside a care radius"),
+        ("sick_total", RED, "sick anywhere"),
+        ("sick_in_care", BLUE, "sick inside a care radius"),
     ]:
-        ys = [s[key] for s in care]
-        ax1.plot(ts, ys, color=color, label=label)
-        entries.append((ts, ys, label))
+        xs, ys = step_plot(ax1, ts, [s[key] for s in care], color=color, label=label)
+        entries.append((xs, ys, label))
     label_ends(ax1, entries)
+    count_axis(ax1)
     ax1.set_ylabel("beings")
-    ax1.set_title("Health center reach", pad=26)
+    ax1.set_title("Health center care", pad=44)
+    subtitle(ax1, describe_centers(centers, grid), dy=19)
     top_legend(ax1, ncols=3)
-    ax1.margins(x=0.16)
+    if not any(s["sick_in_care"] for s in care):
+        ax1.text(0.98, 0.9, "no sick being ever stood inside a care radius",
+                 transform=ax1.transAxes, ha="right", fontsize=10, color=INK2)
 
-    pct = [100.0 * s["sick_in_care"] / s["sick_total"] if s["sick_total"]
-           else float("nan") for s in care]
-    ax2.plot(ts, pct, color=BLUE)
-    label_end(ax2, ts, pct, "sick under care")
-    ax2.set_ylabel("% of the sick")
-    ax2.set_ylim(-3, 103)
+    total = list(accumulate(s["sick_total"] for s in care))
+    cared = list(accumulate(s["sick_in_care"] for s in care))
+    share = f" ({cared[-1] / total[-1]:.0%})" if total and total[-1] else ""
+    xs, ys = step_plot(ax2, ts, total, color=RED)
+    entries = [(xs, ys, "sick-days total")]
+    xs, ys = step_plot(ax2, ts, cared, color=BLUE)
+    entries.append((xs, ys, "sick-days under care" + share))
+    label_ends(ax2, entries)
+    count_axis(ax2)
+    ax2.set_ylabel("cumulative sick-days")
+    ax2.set_title("How much of the sickness happened under care")
     ax2.set_xlabel("day")
-    ax2.margins(x=0.16)
     return save(fig, out_dir, "health_center.png")
 
 
 def plot_ppe(series, ppe_metrics, out_dir):
     ts = [s["t"] for s in series]
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9, 4))
+    day_axis(ax1, ts, room=0.3)
     entries = []
     for key, color, label in [
         ("alive", BEING, "alive"),
         ("ppe_carriers", BLUE, "PPE carriers"),
         ("sick", RED, "sick"),
     ]:
-        ys = [s[key] for s in series]
-        ax1.plot(ts, ys, color=color, label=label)
-        entries.append((ts, ys, label))
+        xs, ys = step_plot(ax1, ts, [s[key] for s in series], color=color, label=label)
+        entries.append((xs, ys, label))
     label_ends(ax1, entries)
+    count_axis(ax1)
     ax1.set_xlabel("day")
     ax1.set_ylabel("beings")
     ax1.set_title("PPE coverage", pad=26)
     top_legend(ax1, ncols=3)
-    ax1.margins(x=0.16)
 
     eff = ppe_metrics["efficiency"]
     pairs = [("without PPE", eff["without_ppe"], BEING),
              ("with PPE", eff["with_ppe"], BLUE)]
-    rates = [(g["rate_per_contact"] or 0.0) for _, g, _ in pairs]
-    ax2.bar(range(2), rates, color=[c for _, _, c in pairs], width=0.6)
-    for i, (_label, g, _color) in enumerate(pairs):
-        note = f"{g['infections']}/{g['contacts']} contacts"
-        ax2.annotate(f"{rates[i]:.3f}\n{note}", (i, rates[i]), xytext=(0, 4),
-                     textcoords="offset points", ha="center", fontsize=9, color=INK)
+    for i, (_label, g, color) in enumerate(pairs):
+        if not g["contacts"]:
+            ax2.annotate("no contacts\nin this run", (i, 0), xytext=(0, 4),
+                         textcoords="offset points", ha="center", va="bottom",
+                         fontsize=9, color=INK2)
+            continue
+        rate = g["rate_per_contact"] or 0.0
+        ax2.bar(i, rate, color=color, width=0.6)
+        ax2.annotate(f"{rate:.3f}\n{g['infections']}/{g['contacts']} contacts",
+                     (i, rate), xytext=(0, 4), textcoords="offset points",
+                     ha="center", fontsize=9, color=INK)
     ax2.set_xticks(range(2))
     ax2.set_xticklabels([name for name, _, _ in pairs])
-    ax2.set_ylabel("transmission per contact-step")
+    ax2.set_xlim(-0.6, 1.6)
+    ax2.set_ylabel("infections per contact-step")
     title = "PPE efficiency"
     if eff["protection_realized"] is not None:
         title += (f"\nrealized ×{eff['protection_realized']:.2f}"
@@ -318,8 +400,6 @@ def plot_ppe(series, ppe_metrics, out_dir):
     ax2.set_title(title)
     ax2.margins(y=0.2)
     return save(fig, out_dir, "ppe.png")
-
-
 def write_timeseries(series, out_dir):
     path = Path(out_dir) / "timeseries.csv"
     if not series:
@@ -384,7 +464,8 @@ def generate(run_dir, out_dir=None):
     write_timeseries(series, out_dir)
 
     style()
-    paths = [plot_epidemic_curves(series, out_dir), plot_infections(series, out_dir)]
+    paths = [plot_epidemic_curves(series, out_dir),
+             plot_infections(series, infections, out_dir)]
     if infections:
         paths.append(plot_transmission_tree(infections, out_dir))
         paths.append(plot_secondary_cases(infections, metrics["r0"], out_dir))
@@ -401,7 +482,7 @@ def generate(run_dir, out_dir=None):
             run_dir).get("env", {}).get("grid_size")
         care = eu.care_series(frames, centers, grid)
         if care:
-            paths.append(plot_health_center(care, out_dir))
+            paths.append(plot_health_center(care, centers, grid, out_dir))
 
     print_summary(metrics)
     print(f"\nWritten to {out_dir}/: metrics.json, timeseries.csv, "

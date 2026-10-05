@@ -5,7 +5,7 @@ config:
   run:
     scenario: pandemics
     scenario_options:
-      init_infected: 1
+      init_infected: 2
       outbreak_step: 0
       incubation_min: 2
       incubation_max: 15

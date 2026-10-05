@@ -93,10 +93,25 @@ async function openRun(name) {
   if (state.meta.status === "live") startStream();
 }
 
+/* Stop signals the runner the way Ctrl-C does (it finishes the step and keeps its checkpoint);
+   the hard stop kills it at once. The viewer finds the process by the run files it keeps open. */
+async function stopRun(hard) {
+  const question = hard ? "End the run's process at once? Nothing is saved." : "Stop the run after the current step?";
+  if (!confirm(question)) return;
+  const msg = $("#stop-msg");
+  msg.textContent = "…";
+  const r = await fetch(`/api/runs/${encodeURIComponent(state.run)}/stop?hard=${hard}`, { method: "POST" });
+  const data = await r.json().catch(() => ({}));
+  msg.textContent = r.ok ? `${data.signal} sent to process ${data.pids.join(", ")}` : (data.detail || `error ${r.status}`);
+}
+$("#stop-run").addEventListener("click", () => stopRun(false));
+$("#kill-run").addEventListener("click", () => stopRun(true));
+
 function setStatus(status) {
   const el = $("#status-badge");
   el.className = `badge ${status}`;
   el.lastElementChild.textContent = status;
+  $("#run-controls").hidden = !(status === "live" || status === "stalled");
 }
 
 /* ---------------- time ---------------- */
@@ -558,14 +573,15 @@ function drawAgentList() {
       (here ? "" : death ? deathText(death) : "not present at this step");
     const health = healthOf(here);
     const role = roleOf(tag);
+    // a recovered being wears the map's --recovered ring on its marker
+    const ring = isRecovered(here) ? " recovered" : "";
     const marker = role
-      ? `<span class="chip glyph" style="color:${healthColor(health, here)}">${ROLE_GLYPHS[roleShape(role)]}</span>`
-      : `<span class="chip" style="background:${healthColor(health, here)}"></span>`;
+      ? `<span class="chip glyph${ring}" style="color:${healthColor(health, here)}">${ROLE_GLYPHS[roleShape(role)]}</span>`
+      : `<span class="chip${ring}" style="background:${healthColor(health, here)}"></span>`;
     pill.innerHTML =
       `${marker}${esc(nameOf(tag))}` +
       (health ? ` ${HEALTH_GLYPH[health]}` : "") +
-      (hasPPE(here) ? ` ${PPE_GLYPH}` : "") +
-      (isRecovered(here) ? ` ${RECOVERED_GLYPH}` : "");
+      (hasPPE(here) ? ` ${PPE_GLYPH}` : "");
     pill.onclick = () => selectAgent(tag);
     box.appendChild(pill);
   }

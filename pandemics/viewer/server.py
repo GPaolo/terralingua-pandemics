@@ -14,6 +14,8 @@ import argparse
 import asyncio
 import json
 import os
+import signal
+import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import Dict, Optional
@@ -105,6 +107,23 @@ def transmission(reader: RunReader) -> dict:
     }
 
 
+def run_processes(run_dir: Path) -> list[int]:
+    """PIDs of the TerraLingua runs that hold this run's files open: the runner keeps its logs open."""
+    try:
+        out = subprocess.run(["lsof", "-t", "+D", str(run_dir)], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    pids = []
+    for token in set(out.stdout.split()):
+        if not token.isdigit() or int(token) == os.getpid():
+            continue
+        ps = subprocess.run(["ps", "-o", "command=", "-p", token], capture_output=True, text=True)
+        command = ps.stdout.strip()
+        if "terralingua" in command and not any(part in command for part in ("terralingua.config", ".viewer", ".anthropologist")):
+            pids.append(int(token))
+    return sorted(pids)
+
+
 def create_app(logs_root: Path) -> FastAPI:
     app = FastAPI(title="Pandemics run viewer")
     app.state.logs_root = Path(logs_root)
@@ -158,6 +177,22 @@ def create_app(logs_root: Path) -> FastAPI:
         # Live runs first, then by name.
         runs.sort(key=lambda r: (r["status"] != "live", r["name"]), reverse=False)
         return {"runs": runs, "logs_root": str(root)}
+
+    @app.post("/api/runs/{name}/stop")
+    def stop_run(name: str, hard: bool = False):
+        """Signal the process writing this run: SIGINT stops it after the current step, as Ctrl-C does;
+        hard sends SIGKILL, which ends it at once without a checkpoint."""
+        reader = get_reader(name, refresh=False)
+        pids = run_processes(reader.dir)
+        if not pids:
+            raise HTTPException(status_code=404, detail="No running TerraLingua process holds this run's files.")
+        sig = signal.SIGKILL if hard else signal.SIGINT
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+        return {"pids": pids, "signal": sig.name}
 
     @app.get("/api/runs/{name}/meta")
     def run_meta(name: str):

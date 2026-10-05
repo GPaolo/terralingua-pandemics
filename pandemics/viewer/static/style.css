@@ -349,6 +349,7 @@ footer.charts {
 }
 .agent-pill .chip { width: 8px; height: 8px; border-radius: 3px; }
 .agent-pill .chip.glyph { background: none; width: auto; min-width: 8px; height: auto; font-size: 11px; line-height: 1; text-align: center; }
+.agent-pill .chip.recovered { border-radius: 50%; box-shadow: 0 0 0 2px var(--recovered); margin: 0 2px; }
 
 /* ---------- action + thought ---------- */
 
@@ -499,3 +500,8 @@ footer.charts {
   overflow: auto;
 }
 .hidden { display: none !important; }
+
+/* ---------- stop buttons ---------- */
+.run-controls { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
+.run-controls button { padding: 2px 9px; font-size: 12px; }
+.run-controls .danger { color: var(--status-critical); border-color: var(--status-critical); }
