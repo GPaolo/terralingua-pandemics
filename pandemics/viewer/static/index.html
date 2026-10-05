@@ -36,8 +36,12 @@
     <section class="panel" id="map-panel">
       <h2 title="Double-click to expand">World <span id="grid-dims"></span></h2>
       <div id="map-wrap">
-        <canvas id="map"></canvas>
+        <div id="map-scroll"><canvas id="map"></canvas></div>
         <div id="tooltip"></div>
+        <div class="map-zoom">
+          <button id="map-zoom-in" title="Zoom in (+)">+</button>
+          <button id="map-zoom-out" title="Zoom out (&minus;)" disabled>&minus;</button>
+        </div>
       </div>
       <div class="legend">
         <span class="key"><span class="swatch ramp"></span> food</span>

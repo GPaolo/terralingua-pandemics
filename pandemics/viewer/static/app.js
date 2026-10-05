@@ -33,6 +33,9 @@ const state = {
   // Element id of the panel expanded to full screen, or null. Kept as an id
   // rather than a node because drawCharts rebuilds its cards from scratch.
   zoom: null,
+  // Map magnification level: 0 fits the panel, each step is MAP_ZOOM_STEP times
+  // larger. Unrelated to `zoom`, which is the full-screen panel.
+  mapZoom: 0,
   cache: new Map(),
 };
 
@@ -334,21 +337,41 @@ function render() {
   drawCharts();
 }
 
+const MAP_ZOOM_STEP = 1.25;
+const MAP_ZOOM_MAX = 10;
+
 function mapGeometry() {
   const canvas = $("#map");
-  const wrap = $("#map-wrap");
+  const scroll = $("#map-scroll");
   const dpr = window.devicePixelRatio || 1;
   const n = state.meta.grid_size;
   // The column width is set by the grid (and the drag handles), so the map
-  // simply fills whichever of the wrap's dimensions is tighter.
-  const size = Math.max(120, Math.min(wrap.clientHeight, wrap.clientWidth));
-  const cell = Math.max(2, Math.floor(size / n));
+  // fills whichever of the scroll box's dimensions is tighter, times the zoom.
+  const size = Math.max(120, Math.min(scroll.clientHeight, scroll.clientWidth));
+  const cell = Math.max(2, Math.floor((size * MAP_ZOOM_STEP ** state.mapZoom) / n));
   const px = cell * n;
   canvas.width = px * dpr;
   canvas.height = px * dpr;
   canvas.style.width = px + "px";
   canvas.style.height = px + "px";
   return { ctx: canvas.getContext("2d"), cell, n, dpr };
+}
+
+/* +/- buttons. Zooms around the centre of whatever is in view, so stepping in
+   on a cluster keeps it under the eye instead of sliding it off to the corner. */
+function zoomMap(delta) {
+  const level = Math.max(0, Math.min(MAP_ZOOM_MAX, state.mapZoom + delta));
+  if (level === state.mapZoom || !state.world) return;
+  const scroll = $("#map-scroll"), canvas = $("#map");
+  const before = canvas.clientWidth || 1;
+  const cx = (scroll.scrollLeft + scroll.clientWidth / 2) / before;
+  const cy = (scroll.scrollTop + scroll.clientHeight / 2) / before;
+  state.mapZoom = level;
+  drawMap();
+  scroll.scrollLeft = cx * canvas.clientWidth - scroll.clientWidth / 2;
+  scroll.scrollTop = cy * canvas.clientWidth - scroll.clientHeight / 2;
+  $("#map-zoom-out").disabled = level === 0;
+  $("#map-zoom-in").disabled = level === MAP_ZOOM_MAX;
 }
 
 function drawMap() {
@@ -1036,34 +1059,36 @@ function unpinTooltip() {
 }
 
 function hookTooltip() {
-  const canvas = $("#map"), tip = $("#tooltip");
+  const canvas = $("#map"), wrap = $("#map-wrap"), tip = $("#tooltip");
   const cellAt = (e) => {
     const rect = canvas.getBoundingClientRect();
     const n = state.meta.grid_size, cell = rect.width / n;
     return {
       x: Math.floor((e.clientY - rect.top) / cell),
       y: Math.floor((e.clientX - rect.left) / cell),
-      n, rect,
+      n,
     };
   };
-  const place = (e, rect) => {
-    tip.style.left = e.clientX - rect.left + canvas.offsetLeft + 14 + "px";
-    tip.style.top = e.clientY - rect.top + canvas.offsetTop + 14 + "px";
+  // Positioned against the wrap, not the canvas: the canvas scrolls when zoomed.
+  const place = (e) => {
+    const rect = wrap.getBoundingClientRect();
+    tip.style.left = e.clientX - rect.left + 14 + "px";
+    tip.style.top = e.clientY - rect.top + 14 + "px";
   };
 
   canvas.addEventListener("mousemove", (e) => {
     if (!state.world || state.tipPinned) return;
-    const { x, y, n, rect } = cellAt(e);
+    const { x, y, n } = cellAt(e);
     if (x < 0 || y < 0 || x >= n || y >= n) return (tip.style.opacity = 0);
     tip.innerHTML = tooltipHtml(x, y).html;
     tip.style.opacity = 1;
-    place(e, rect);
+    place(e);
   });
   canvas.addEventListener("mouseleave", () => { if (!state.tipPinned) tip.style.opacity = 0; });
 
   canvas.addEventListener("click", (e) => {
     if (!state.world) return;
-    const { x, y, n, rect } = cellAt(e);
+    const { x, y, n } = cellAt(e);
     if (x < 0 || y < 0 || x >= n || y >= n) return unpinTooltip();
     // Shortcuts: a being on the cell gets selected outright, a bare artifact
     // opens in the panel.
@@ -1086,7 +1111,7 @@ function hookTooltip() {
     tip.classList.add("pinned");
     tip.innerHTML = html;
     tip.style.opacity = 1;
-    place(e, rect);
+    place(e);
     tip.querySelectorAll("[data-tag]").forEach((el) => {
       el.onclick = () => selectAgent(el.dataset.tag);
     });
@@ -1112,6 +1137,8 @@ function hookControls() {
     await loadRuns();
     $("#run-overlay").classList.remove("hidden");
   };
+  $("#map-zoom-in").onclick = () => zoomMap(1);
+  $("#map-zoom-out").onclick = () => zoomMap(-1);
   $("#theme").onclick = () => {
     const root = document.documentElement;
     root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
@@ -1138,6 +1165,8 @@ function hookControls() {
     else if (e.key === "ArrowRight") { stop(); goto(state.step + (e.shiftKey ? 10 : 1)); }
     else if (e.key === "Home") { stop(); state.following = false; goto(0); }
     else if (e.key === "End") { stop(); state.following = state.meta.status === "live"; goto(state.meta.last_step); }
+    else if (e.key === "+" || e.key === "=") zoomMap(1);
+    else if (e.key === "-") zoomMap(-1);
     else if (e.key === "Escape") {
       unpinTooltip();
       // Innermost thing first: a modal opened over a full-screen panel closes on
@@ -1151,7 +1180,7 @@ function hookControls() {
   // The map is sized from its container, which keeps changing as the charts and
   // panels below it fill in. Watching the element beats listening for `resize`,
   // which never fires for those internal reflows.
-  new ResizeObserver(() => drawMap()).observe($("#map-wrap"));
+  new ResizeObserver(() => drawMap()).observe($("#map-scroll"));
 }
 
 /* Column widths: equal thirds by default; dragging a gutter pins that side to a

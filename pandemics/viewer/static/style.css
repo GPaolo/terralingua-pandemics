@@ -211,12 +211,20 @@ main {
 #map-panel { grid-column: 1; grid-row: 1 / 3; display: flex; flex-direction: column; overflow: hidden; }
 /* The canvas is sized in JS to an exact multiple of the grid, so it must not be
    stretched by CSS -- a fractional cell size shows up as shimmering grid lines. */
-#map-wrap { flex: 1; position: relative; min-height: 0; display: grid; place-items: center; }
-#map { display: block; cursor: crosshair; }
+#map-wrap { flex: 1; position: relative; min-height: 0; }
+/* The canvas pans in its own scroll box so the tooltip and zoom buttons, which
+   hang off #map-wrap, hold still. Flex + auto margins centre a map that fits and
+   let a zoomed one overflow bottom-right, where scrolling can reach it. */
+#map-scroll { position: absolute; inset: 0; overflow: auto; display: flex; }
+#map { display: block; flex: none; margin: auto; cursor: crosshair; }
+.map-zoom { position: absolute; top: 6px; right: 6px; display: flex; flex-direction: column; gap: 4px; z-index: 4; }
+.map-zoom button { width: 26px; height: 26px; padding: 0; font-size: 16px; line-height: 1; }
 
 #chat-panel { grid-column: 3; grid-row: 1; }
 #artifacts-panel { grid-column: 3; grid-row: 2; }
-#side { grid-column: 5; grid-row: 1; min-height: 330px; }
+/* No min-height: on a short window the panel must shrink with its row and
+   scroll, or its box runs under #thought and the trait bars paint through. */
+#side { grid-column: 5; grid-row: 1; }
 #thought { grid-column: 5; grid-row: 2; }
 /* Cap the lower row so the map keeps the height -- but not when the panel has
    left the grid for full screen. Written as :not() rather than as an override

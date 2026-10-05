@@ -45,6 +45,7 @@ config:
     use_inventory: true
     use_colors: false
     scenario_specific_instructions: instructions.md
+    random_names: true
   env:
     world_type: grid
     grid_size: 60
