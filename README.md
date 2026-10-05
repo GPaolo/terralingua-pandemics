@@ -45,7 +45,7 @@ Pick the `ebola` preset, change settings in the form, and launch. The page also 
 
 - `epidemic.py`: the `Epidemic` mechanic and its `EpidemicOptions`. Infection state lives in the mechanic and is saved with the world checkpoint.
 - `artifacts.py`: `ppe` (protective equipment), `health_center`, and `remains`. Beings cannot create them; the scenario seeds them.
-- `personas.json`: the personas of the Ebola setting. Each entry has a `persona` text, an optional `name`, a `count`, and a `role`. The first beings created get them in file order. Every other being gets a human first name and no persona. Beings with the role named by `ppe_role` start with protective equipment. Some personas know about the sickness.
+- `personas.json`: the personas of the Ebola setting, named by `agent.personas_path` in the preset and handed out by TerraLingua. Each entry has a `persona` text, an optional `name`, a `count`, and a `role`, which the scenario reads from the entry. The first beings created get them in file order. Every other being gets a human first name and no persona. Beings with the role named by `ppe_role` start with protective equipment. Some personas know about the sickness.
 - `instructions.md`: empty on purpose.
 - `state_log.py`: writes the per-step world state file the two tools read.
 
@@ -111,7 +111,7 @@ Model-written code runs in a guarded worker process: imports outside a short all
 
 ## Add a disease
 
-Copy `ebola.preset.yaml` to `<name>.preset.yaml`, set `name:` and `exp_name:` to the new name, change the `scenario_options` and the world settings, and run `terralingua <name>`. A new personas file goes inside `pandemics/`, since `personas_path` is read relative to that folder, or is given as an absolute path. The package is general: every parameter of the sickness is a preset value.
+Copy `ebola.preset.yaml` to `<name>.preset.yaml`, set `name:` and `exp_name:` to the new name, change the `scenario_options` and the world settings, and run `terralingua <name>`. A new personas file is named by `agent.personas_path` in the preset, relative to the preset's folder. The package is general: every parameter of the sickness is a preset value.
 
 ## Tests
 

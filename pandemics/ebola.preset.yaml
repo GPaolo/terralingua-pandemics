@@ -27,7 +27,6 @@ config:
       funeral_announcement_radius: 10
       funeral_mourning_days: 1
       remains_lifespan: 10
-      personas_path: personas.json
       health_centers_path: health_centers.json
     exp_name: ebola
     exp_description: Ebola-calibrated contact sickness with incubation
@@ -45,14 +44,15 @@ config:
     use_inventory: true
     use_colors: false
     scenario_specific_instructions: instructions.md
+    personas_path: personas.json
     random_names: true
   env:
     world_type: grid
-    grid_size: 60
+    grid_size: 30
     dynamic_grid_scaling: false
     vision_radius: 6
-    init_agents: 150
-    min_agents: 50
+    init_agents: 20
+    min_agents: 0
     init_agent_energy: 200
     agent_lifespan: 250
     food_mechanism: true

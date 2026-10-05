@@ -6,6 +6,7 @@ import types
 from pathlib import Path
 
 import pytest
+from terralingua.agents.personas import load_personas
 from terralingua.config.compose import compose
 from terralingua.environment.grid_env import OpenGridWorld
 from terralingua.experiment import runner as runner_module
@@ -316,17 +317,17 @@ def test_personas_follow_the_file_order_and_counts(tmp_path):
         {"persona": "You brew tea.", "name": "Amara", "count": 2, "role": "healer"},
         {"persona": "You preach.", "name": "Ezekiel", "role": "leader"},
     ]))
-    env, mechanic = make_env(
-        tmp_path, [(2, 2), (2, 3), (2, 4), (2, 5)],
-        {"personas_path": str(personas), "ppe_role": "healer", "ppe_per_worker": 1},
-    )
-    idents = [env.agent_identity(f"a{i}") for i in range(4)]
-    assert idents[0] == {"name": "Amara", "persona": "You brew tea."}
+    env, mechanic = make_env(tmp_path, [(2, 2), (2, 3), (2, 4), (2, 5)], {"ppe_role": "healer", "ppe_per_worker": 1})
+    entries = load_personas(personas)  # TerraLingua reads the file and keeps the roles
+    idents = [env.agent_identity_settled(f"a{i}", dict(entries[i]) if i < len(entries) else {}) for i in range(4)]
+    # a name applies only to an entry with count 1 (TerraLingua's rule), so both tea brewers get human names
+    assert idents[0]["persona"] == "You brew tea." and idents[0]["role"] == "healer" and idents[0]["name"] not in ("Amara", "a0")
     assert idents[1]["persona"] == "You brew tea." and idents[1]["name"] not in ("Amara", "a1")
-    assert idents[2] == {"name": "Ezekiel", "persona": "You preach."}
-    assert idents[3]["persona"] == "" and idents[3]["name"]
+    assert idents[2] == {"name": "Ezekiel", "persona": "You preach.", "role": "leader"}
+    assert idents[3] == {"name": idents[3]["name"]} and idents[3]["name"]
     assert len({i["name"] for i in idents}) == 4
-    assert env.agent_identity("a1") == idents[1]  # stable on a second call
+    assert mechanic.state["identities"]["a1"]["role"] == "healer"
+    assert env.agent_identity_settled("a1", {}) == {"name": idents[1]["name"]}  # stable on a second call
     step(env)  # fixtures: protective equipment goes to the two healers
     for tag in ("a0", "a1"):
         assert any(isinstance(env.artifacts[n], PPEArtifact) for n in env.agent_inventories[tag])

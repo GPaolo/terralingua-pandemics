@@ -192,11 +192,6 @@ class EpidemicOptions(BaseModel):
         "with its own pose, radius, heal_probability, hazard_multiplier, "
         "name, and payload. Relative to the scenario folder. null seeds none.",
     )
-    personas_path: str = Field(
-        "personas.json",
-        description="JSON list of personas with name, persona, count, and role. Relative to the scenario folder.",
-    )
-
     @model_validator(mode="after")
     def _ordered(self):
         if self.incubation_min > self.incubation_max:
@@ -218,37 +213,11 @@ class Epidemic(Mechanic):
                 "reminders": [],
                 "seeded": False,
                 "identities": {},
-                "assigned": 0,
             }
         )
-        self._personas: List[dict] | None = None
         self.world_log: WorldStateLogger | None = None
 
     # ---------- identity ----------
-    def personas(self) -> List[dict]:
-        """The persona entries of the file, expanded by count, in file order."""
-        if self._personas is None:
-            path = Path(self.options.personas_path)
-            if not path.is_absolute():
-                path = Path(__file__).resolve().parent / path
-            if not path.exists():
-                raise FileNotFoundError(f"personas file not found: {path}")
-            entries = json.loads(path.read_text())
-            expanded = []
-            for entry in entries:
-                if isinstance(entry, str):
-                    entry = {"persona": entry}
-                for i in range(int(entry.get("count", 1))):
-                    expanded.append(
-                        {
-                            "persona": str(entry["persona"]),
-                            "name": entry.get("name") if i == 0 else None,
-                            "role": entry.get("role"),
-                        }
-                    )
-            self._personas = expanded
-        return self._personas
-
     def human_name(self, env, tag: str) -> str:
         """A human first name, fixed by the tag, unique among the beings so far."""
         used = {i["name"] for i in self.state["identities"].values()} | set(
@@ -261,18 +230,15 @@ class Epidemic(Mechanic):
             name = fake.first_name()
         return name
 
-    def identity(self, env, tag: str) -> dict:
-        """Personas go to the first beings created, in file order; everyone gets a human name."""
+    def on_identity(self, env, tag: str, identity: dict) -> dict:
+        """TerraLingua hands out the personas file (agent.personas_path); this keeps each being's
+        role from its entry and gives a human first name to the beings the file leaves unnamed."""
         ident = self.state["identities"].get(tag)
         if ident is None:
-            index = self.state["assigned"]
-            self.state["assigned"] = index + 1
-            personas = self.personas()
-            entry = personas[index] if index < len(personas) else {}
             ident = {
-                "name": entry.get("name") or self.human_name(env, tag),
-                "persona": entry.get("persona", ""),
-                "role": entry.get("role"),
+                "name": identity.get("name") or self.human_name(env, tag),
+                "persona": identity.get("persona", ""),
+                "role": identity.get("role"),
             }
             self.state["identities"][tag] = ident
             if env.logger is not None:
@@ -284,7 +250,7 @@ class Epidemic(Mechanic):
                     role=ident["role"],
                     persona=ident["persona"],
                 )
-        return {"name": ident["name"], "persona": ident["persona"]}
+        return {"name": ident["name"]}
 
     def appetite(self, env) -> None:
         """Bedridden hosts leave food untouched; tell them when they stand on some."""
