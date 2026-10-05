@@ -1,5 +1,6 @@
 name: ebola
-description: Ebola-calibrated contact sickness with incubation on a torus grid, with roles, protective equipment, a health center, remains, and burials.
+description: Ebola-calibrated contact sickness with incubation on a torus grid, with
+  roles, protective equipment, a health center, remains, and burials.
 config:
   run:
     scenario: pandemics
@@ -24,7 +25,7 @@ config:
       burial_bystander_multiplier: 1.5
       funeral_announcements: true
       funeral_announcement_radius: 10
-      funeral_mourning_days: 0
+      funeral_mourning_days: 1
       remains_lifespan: 10
       personas_path: personas.json
       health_centers_path: health_centers.json
@@ -35,11 +36,12 @@ config:
     max_parallel_workers: 20
     save_video: false
     live_render: false
+    env_heartbeat: -1
   agent:
     genome: ocean_5
     agents_name_prefix: being
-    max_history: 1
-    internal_memory_size: 150
+    max_history: 3
+    internal_memory_size: 300
     use_inventory: true
     use_colors: false
     scenario_specific_instructions: instructions.md

@@ -128,6 +128,17 @@ def test_agent_logs_feed_the_chat_the_thought_and_the_genome(tmp_path):
     assert meta["last_decision_step"] == 3
 
 
+def test_a_token_counts_file_in_agent_logs_is_not_a_being(tmp_path):
+    logs_root, run, env = scripted_run(tmp_path)
+    (run / "agent_logs").mkdir(exist_ok=True)
+    (run / "agent_logs" / "token_counts.jsonl").write_text(
+        json.dumps({"timestep": 0, "agent_tag": "a0", "total_input_tokens": 1}) + "\n"
+    )
+    client = TestClient(create_app(logs_root))
+    assert [r["name"] for r in client.get("/api/runs").json()["runs"]] == ["run1"]
+    assert "token_counts" not in client.get("/api/runs/run1/meta").json()["agents"]
+
+
 def test_the_status_follows_the_status_file_then_the_end_event(tmp_path):
     logs_root, run, env = scripted_run(tmp_path)
     reader = RunReader(run)

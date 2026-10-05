@@ -57,6 +57,8 @@ LIVE_GRACE_SECONDS = 180
 
 #: Dropped on ingest. They are large and the viewer does not show them.
 _HEAVY_AGENT_FIELDS = ("input_prompt", "available_actions")
+# Older cores wrote this usage file into agent_logs/ next to the beings' logs.
+_NON_AGENT_LOG_FILES = {"token_counts.jsonl"}
 
 #: Artifact types that are simulation state, not texts written by beings.
 STATE_ARTIFACT_TYPES = ("viral", "ppe", "health_center", "remains")
@@ -169,12 +171,16 @@ class RunReader:
         if not log_dir.is_dir():
             return
         for path in sorted(log_dir.glob("*.jsonl")):
+            if path.name in _NON_AGENT_LOG_FILES:
+                continue
             tag = path.stem
             key = f"agent:{tag}"
             records, offset = _iter_json_lines(path, self._offsets.get(key, 0))
             self._offsets[key] = offset
             ticks = self._agent_ticks.setdefault(tag, {})
             for r in records:
+                if "timestamp" not in r:
+                    continue
                 for field in _HEAVY_AGENT_FIELDS:
                     r.pop(field, None)
                 ticks[int(r["timestamp"])] = r
