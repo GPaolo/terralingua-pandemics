@@ -27,7 +27,7 @@ config:
       funeral_announcement_radius: 10
       funeral_mourning_days: 1
       remains_lifespan: 10
-      health_centers_path: health_centers.json
+      health_centers_path: ebola/health_centers.json
     exp_name: ebola
     exp_description: Ebola-calibrated contact sickness with incubation
     max_ts: 200

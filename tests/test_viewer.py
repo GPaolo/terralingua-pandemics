@@ -7,6 +7,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 from terralingua.agents.agent_logger import AgentLogger
+from terralingua.agents.personas import load_personas
 from terralingua.environment.env_logger import Event
 
 from pandemics.viewer.reader import LIVE_GRACE_SECONDS, RunReader
@@ -30,7 +31,8 @@ def scripted_run(tmp_path, options=None):
         {"init_infected": 1, "incubation_min": 1, "incubation_max": 1, **(options or {})},
         init_food=20, food_mechanism=True,
     )
-    env.agent_identity("a0")  # the first persona of the file, with its role
+    entry = load_personas("ebola/personas.json")[0]  # the first persona of the file, with its role
+    env.agent_identity_settled("a0", dict(entry))
     for _ in range(5):
         step(env)
     env.logger.fp.flush()

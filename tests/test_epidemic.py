@@ -268,7 +268,8 @@ def test_scenario_module_loads_and_the_preset_composes():
     assert cfg.run.scenario == "pandemics"
     assert cfg.env.world_type == "grid"
     assert Path(cfg.agent.scenario_specific_instructions).read_text() == ""
-    EpidemicOptions.model_validate(cfg.run.scenario_options)
+    options = EpidemicOptions.model_validate(cfg.run.scenario_options)
+    assert len(Epidemic(options).health_centers()) == 1  # ebola/health_centers.json, from the working directory
 
 
 def test_a_sick_host_that_starves_still_leaves_infectious_remains(tmp_path):

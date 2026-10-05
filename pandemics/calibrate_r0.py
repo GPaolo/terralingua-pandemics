@@ -9,7 +9,7 @@ transmission. Each candidate probability runs on several seeds. The realized
 R0 is the mean number of secondary infections of the completed infections in
 generations 0 and 1, pooled over the seeds.
 
-Run it from the folder that holds the preset:
+Run it from the repository root, where the presets are found:
 
     python -m pandemics.calibrate_r0
     python -m pandemics.calibrate_r0 --probs 0.3 0.5 --seeds 6 --steps 300

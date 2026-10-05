@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 dependencies = [
     "terralingua @ git+https://github.com/cognizant-ai-lab/terralingua.git@main",
+    "terralingua-launcher @ git+https://github.com/GPaolo/terralingua_launcher.git@main",
     "faker",
     "pydantic",
     "fastapi",
@@ -30,7 +31,7 @@ where = ["."]
 include = ["pandemics*"]
 
 [tool.setuptools.package-data]
-pandemics = ["personas.json", "instructions.md", "viewer/static/*", "anthropologist/static/*"]
+pandemics = ["viewer/static/*", "anthropologist/static/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

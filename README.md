@@ -1,53 +1,60 @@
-# pandemics
+# Pandemics
 
-Contact-sickness scenarios for [TerraLingua](https://github.com/cognizant-ai-lab/terralingua), a multi-agent simulation in which LLM-powered beings live on a shared grid. This package adds a sickness that spreads by contact, with incubation, protective equipment, a health center, remains and burials. It ships two tools that read a run folder: a run viewer and an epidemic anthropologist that writes a report and answers questions about a run.
+Pandemics simulation scenario for [TerraLingua](https://github.com/cognizant-ai-lab/terralingua), a multi-agent simulation in which LLM-powered beings live on a shared grid.
+The scenario simulates the spread of a virus in a community of beings. The repo ships an Ebola preset: a WHO field worker and a health worker try to fight the outbreak by raising awareness and distributing Personal Protective Equipment (PPE), while a religious leader and a traditional healer push their own beliefs about the sickness.
 
+The sickness spreads by contact, with incubation, protective equipment, health centers, remains and burials. In the case of Ebola, communal burials act as super-spreading events.
 Most beings are told nothing about the sickness. A few personas, such as the health workers, know about it and may tell the others. The rest learn from their own symptoms, from funerals, and from each other.
+
+The repo also ships a viewer to follow a run, an analysis agent (the AI Anthropologist) to study the results, and the TerraLingua launcher, a web page that configures and starts runs.
 
 ## Install
 
-Requires Python 3.10 or newer.
+Requires Python 3.10 or newer. Installing this package also installs TerraLingua and the launcher from their main branches.
 
 ```bash
 git clone https://github.com/GPaolo/terralingua-pandemics.git
 cd terralingua-pandemics
 python -m venv .venv && source .venv/bin/activate
-pip install -e .            # installs terralingua from its main branch, plus this package
+pip install -e .
 cp .env.example .env        # put your model key there
 ```
 
-## Run a scenario
+## Run
 
-Each disease is one preset at the top of the repository. Run from this folder:
+The scenario can simulate different viruses: each one is a preset. A disease is a folder at the top of the repository with a `preset.yaml` and the files it names. The repo ships `ebola/`. Run from this folder:
 
 ```bash
-terralingua ebola                              # the Ebola preset, 150 beings, 200 days
+terralingua ebola                              # the Ebola preset, 20 beings, 200 days
 terralingua ebola --max_ts 20 --init_agents 12 # any setting can be overridden
 terralingua --list                             # every preset found under this folder, plus the two built-in ones
 ```
 
-A run writes `logs/<exp_name>/` under the working directory. Set `TL_LOGS_DIR` in the shell to write and read runs somewhere else. `--resume` restarts a run from its latest checkpoint.
+A run writes `logs/<exp_name>/` under the working directory.
+Set `TL_LOGS_DIR` in the shell to write and read runs somewhere else. `--resume` restarts a run from its latest checkpoint.
 
 ### From the launcher
 
-The [TerraLingua launcher](https://github.com/GPaolo/terralingua_launcher) is a web page that configures and starts runs. Install it in the same environment and point it at this folder:
+The [TerraLingua launcher](https://github.com/GPaolo/terralingua_launcher) is a web page that configures and starts runs. It is installed with this package. Point it at this folder:
 
 ```bash
-pip install git+https://github.com/GPaolo/terralingua_launcher.git
 terralingua-launcher --workdir .
 ```
 
-Pick the `ebola` preset, change settings in the form, and launch. The page also starts the viewer and the anthropologist below with its "Open viewer" and "Open anthropologist" buttons.
+Pick the `ebola` preset, change settings in the form, edit the personas, the instructions or the artifacts, and launch. The page also starts the viewer and the anthropologist below with its "Open viewer" and "Open anthropologist" buttons.
 
-## The scenario
+## Layout
 
-`run.scenario: pandemics` selects the package. `run.scenario_options` in the preset holds every sickness parameter. The code is in `pandemics/`:
+- `ebola/`: one disease. `preset.yaml` holds every setting of the run: `run.scenario: pandemics` selects the package and `run.scenario_options` holds every sickness parameter. `personas.json` and `instructions.md` are named by the preset and read relative to it. `health_centers.json` is named by the `health_centers_path` option and read relative to the working directory.
+- `pandemics/`: the scenario package, common to every disease.
+  - `epidemic.py`: the `Epidemic` mechanic and its `EpidemicOptions`. Infection state lives in the mechanic and is saved with the world checkpoint.
+  - `artifacts.py`: `ppe` (protective equipment), `health_center`, and `remains`. Beings cannot create them; the scenario seeds them.
+  - `state_log.py`: writes the per-step world state file the two tools read.
+  - `viewer/` and `anthropologist/`: the two tools described below.
+  - `calibrate_r0.py`: the calibration script described below.
+- `tests/`: scripted-world tests. No test calls a model.
 
-- `epidemic.py`: the `Epidemic` mechanic and its `EpidemicOptions`. Infection state lives in the mechanic and is saved with the world checkpoint.
-- `artifacts.py`: `ppe` (protective equipment), `health_center`, and `remains`. Beings cannot create them; the scenario seeds them.
-- `personas.json`: the personas of the Ebola setting, named by `agent.personas_path` in the preset and handed out by TerraLingua. Each entry has a `persona` text, an optional `name`, a `count`, and a `role`, which the scenario reads from the entry. The first beings created get them in file order. Every other being gets a human first name and no persona. Beings with the role named by `ppe_role` start with protective equipment. Some personas know about the sickness.
-- `instructions.md`: empty on purpose.
-- `state_log.py`: writes the per-step world state file the two tools read.
+Each personas entry has a `persona` text, an optional `name`, a `count`, and a `role`. The first beings created get them in file order; every other being gets a human first name and no persona. Beings with the role named by `ppe_role` start with protective equipment. The instructions file is empty on purpose: no being gets a scenario-wide text about the sickness, so what the few who know about it tell the others comes from their persona.
 
 The package also declares which options apply only when another option turns a rule on, for example the burial multipliers without burials. A run that sets such an option gets a warning at start, and `python -m terralingua.config evaluate --preset ebola` lists every option with its state.
 
@@ -60,7 +67,7 @@ The package also declares which options apply only when another option turns a r
 5. A health center heals each infected being within its radius, incubating or sick, with its `heal_probability` per step, and multiplies the daily death chance of the sick ones by its `hazard_multiplier`.
 6. A being that dies sick leaves remains at the end of the following step. Beings within `funeral_announcement_radius` hear of the death and where the remains lie. A being next to remains may bury them. The burier takes one exposure at `burial_infection_multiplier` times the base chance, and every other being on a cell next to the remains takes one at `burial_bystander_multiplier`, whether or not it meant to attend. Both come on top of the exposure the remains give each step. Remains spread for `remains_lifespan` minus one steps, then vanish.
 
-The health center and the protective equipment are placed at the end of step 0.
+The health centers and the protective equipment are placed at the end of step 0.
 
 ### What the scenario writes
 
@@ -111,7 +118,7 @@ Model-written code runs in a guarded worker process: imports outside a short all
 
 ## Add a disease
 
-Copy `ebola.preset.yaml` to `<name>.preset.yaml`, set `name:` and `exp_name:` to the new name, change the `scenario_options` and the world settings, and run `terralingua <name>`. A new personas file is named by `agent.personas_path` in the preset, relative to the preset's folder. The package is general: every parameter of the sickness is a preset value.
+Copy `ebola/` to `<name>/`. In its `preset.yaml` set `name:` and `exp_name:` to the new name and point `health_centers_path` at `<name>/health_centers.json`, then change the `scenario_options`, the world settings and the personas, and run `terralingua <name>`. The package is general: every parameter of the sickness is a preset value.
 
 ## Tests
 
@@ -119,8 +126,6 @@ Copy `ebola.preset.yaml` to `<name>.preset.yaml`, set `name:` and `exp_name:` to
 pip install -e ".[dev]"
 python -m pytest -q
 ```
-
-The tests drive the world with scripted actions. No test calls a model.
 
 ## License
 

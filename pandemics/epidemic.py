@@ -190,7 +190,7 @@ class EpidemicOptions(BaseModel):
         None,
         description="JSON list of health centers to seed at the start, each "
         "with its own pose, radius, heal_probability, hazard_multiplier, "
-        "name, and payload. Relative to the scenario folder. null seeds none.",
+        "name, and payload. Relative to the working directory. null seeds none.",
     )
     @model_validator(mode="after")
     def _ordered(self):
@@ -554,8 +554,6 @@ class Epidemic(Mechanic):
         if self.options.health_centers_path is None:
             return []
         path = Path(self.options.health_centers_path)
-        if not path.is_absolute():
-            path = Path(__file__).resolve().parent / path
         if not path.exists():
             raise FileNotFoundError(f"health centers file not found: {path}")
         entries = json.loads(path.read_text())
