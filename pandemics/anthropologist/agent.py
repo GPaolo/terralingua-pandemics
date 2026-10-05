@@ -124,11 +124,12 @@ other. One timestep is one day.
 
 How the sickness works. A new infection incubates silently: the host is told
 nothing and infects nobody. Then the host is feverish for mobile_days days: it
-can still move and act, and it infects others at mobile_infectiousness times
+can still move and act, and it infects others at feverish_multiplier times
 the base rate. After that it is bedridden: frozen in place, no appetite, fully
 infectious. From the first sick day the host loses energy_multiplier times the
-normal energy per day and may die with a chance that grows to death_probability
-over lifespan sick days; after lifespan sick days it recovers and is immune.
+normal energy per day. A share case_fatality of the sick die, with a daily chance
+that rises over the infection_duration sick days; the rest recover after those days
+and are immune.
 Every being within infection_radius of a sick host or of unburied remains has
 a chance infection_probability per day to catch it; giving or taking energy and
 handing over artifacts are contacts with contact_multiplier times that chance,
@@ -136,7 +137,7 @@ times the host factor.
 Protective equipment (ppe artifacts in the inventory) multiplies a being's
 chance by ppe_protection (<1); protection does not stack. A health center heals
 infected beings within its radius, incubating or sick, with heal_probability
-per day and multiplies the sick ones' death chance by hazard_multiplier. A being that dies sick leaves remains
+per day and multiplies the sick ones' daily death chance by hazard_multiplier. A being that dies sick leaves remains
 that spread the sickness until buried or gone; burying and attending a burial
 are exposures too. Most beings are told nothing about the sickness; a few
 personas know about it and may tell the others. The rest learn from
@@ -227,7 +228,7 @@ World settings (params.json, env section):
 - The world line for step t is written during step t, after that step's
   infections and before its deaths: a being that dies at step t is still in
   frame t and gone from frame t+1.
-- lifespan is the SYMPTOMATIC period only; the incubation sits in front of it.
+- infection_duration is the SYMPTOMATIC period only; the incubation sits in front of it.
   Remains spread for remains_lifespan - 1 days unless buried first.
 - Every chance to catch the sickness is logged as a VIRAL_EXPOSURE event with
   probability, protection and infected, so eu.exposure_records and the PPE

@@ -83,7 +83,7 @@ def test_the_viewer_serves_a_scripted_run(tmp_path):
 
 
 def test_ended_infections_count_toward_r0(tmp_path):
-    logs_root, run, env = scripted_run(tmp_path, {"lifespan": 2, "mobile_days": 5})
+    logs_root, run, env = scripted_run(tmp_path, {"infection_duration": 2, "mobile_days": 5})
     viral = TestClient(create_app(logs_root)).get("/api/runs/run1/viral").json()
     by_host = {node["host"]: node for node in viral["chain"]}
     assert by_host["a0"]["ended_at"] == 2 and by_host["a1"]["ended_at"] == 3

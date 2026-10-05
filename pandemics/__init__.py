@@ -17,9 +17,9 @@ CENTER = when("health_center", type="object")
 # `python -m terralingua.config evaluate --preset <name>`.
 APPLICABILITY = {
     "outbreak_step": (when("init_infected", minimum=1), "Requires a being infected at the outbreak."),
-    "mobile_infectiousness": (when("mobile_days", minimum=1), "Requires feverish days before the host is bedridden."),
+    "feverish_multiplier": (when("mobile_days", minimum=1), "Requires feverish days before the host is bedridden."),
     "burial_infection_multiplier": (BURIALS, "Requires burials."),
-    "funeral_attendance_multiplier": (BURIALS, "Requires burials."),
+    "burial_bystander_multiplier": (BURIALS, "Requires burials."),
     "funeral_mourning_days": (either(BURIALS, ANNOUNCEMENTS), "Requires burials or funeral announcements."),
     "funeral_announcement_radius": (ANNOUNCEMENTS, "Requires funeral announcements."),
     "ppe_protection": (EQUIPMENT, "Requires protective equipment for a role."),

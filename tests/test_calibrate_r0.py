@@ -12,7 +12,7 @@ WORLD = dict(
 
 
 def test_calibration_pools_r0_over_seeds(tmp_path):
-    options = EpidemicOptions(**{**FAST, "lifespan": 3, "infection_probability": 0.5})
+    options = EpidemicOptions(**{**FAST, "infection_duration": 3, "infection_probability": 0.5})
     lines = []
     results = calibrate([1.0], seeds=2, steps=20, index=1, agents=8, options=options, world=WORLD, root=tmp_path, log=lines.append)
     (prob, r0, cases, infections), = results

@@ -29,9 +29,9 @@ STAY = {"action": "move", "params": {"direction": "stay"}}
 # first sick step at the end of S+1. With mobile_days=2 it is feverish at the end of S+1
 # and bedridden at the end of S+2.
 FAST = dict(
-    init_infected=0, incubation_min=1, incubation_max=1, lifespan=-1, mobile_days=2,
-    mobile_infectiousness=1.0, infection_probability=1.0, contact_multiplier=1.0,
-    energy_multiplier=1.0, death_probability=0.0, ppe_protection=0.0, ppe_per_worker=0,
+    init_infected=0, incubation_min=1, incubation_max=1, infection_duration=-1, mobile_days=2,
+    feverish_multiplier=1.0, infection_probability=1.0, contact_multiplier=1.0,
+    energy_multiplier=1.0, case_fatality=0.0, ppe_protection=0.0, ppe_per_worker=0,
     funeral_announcement_radius=-1, funeral_mourning_days=0, remains_lifespan=-1,
     health_center=None,
 )
@@ -133,7 +133,7 @@ def test_energy_changes_hands_only_between_adjacent_beings_and_is_a_contact(tmp_
 
 
 def test_recovery_is_immunity(tmp_path):
-    env, mechanic = make_env(tmp_path, [(2, 2)], {"lifespan": 2, "mobile_days": 5})
+    env, mechanic = make_env(tmp_path, [(2, 2)], {"infection_duration": 2, "mobile_days": 5})
     mechanic.infect(env, "a0", None, "test")
     for _ in range(4):
         step(env)
@@ -147,7 +147,7 @@ def test_recovery_is_immunity(tmp_path):
 def test_sick_hosts_lose_extra_energy_and_may_die_leaving_remains(tmp_path):
     env, mechanic = make_env(
         tmp_path, [(2, 2), (2, 4), (8, 8)],
-        {"mobile_days": 0, "energy_multiplier": 3.0, "death_probability": 1.0, "funeral_announcement_radius": 3},
+        {"mobile_days": 0, "energy_multiplier": 3.0, "case_fatality": 1.0, "funeral_announcement_radius": 3},
     )
     mechanic.infect(env, "a0", None, "test")
     step(env)
@@ -166,7 +166,7 @@ def test_sick_hosts_lose_extra_energy_and_may_die_leaving_remains(tmp_path):
 def test_burial_waits_for_the_mourning_then_removes_the_remains(tmp_path):
     env, mechanic = make_env(
         tmp_path, [(2, 2), (2, 3), (8, 8)],
-        {"mobile_days": 0, "death_probability": 1.0, "funeral_mourning_days": 2, "infection_probability": 0.0},
+        {"mobile_days": 0, "case_fatality": 1.0, "funeral_mourning_days": 2, "infection_probability": 0.0},
     )
     mechanic.infect(env, "a0", None, "test")
     step(env)
@@ -188,7 +188,7 @@ def test_burial_waits_for_the_mourning_then_removes_the_remains(tmp_path):
 def test_burial_is_an_exposure_for_the_digger(tmp_path):
     env, mechanic = make_env(
         tmp_path, [(2, 2), (2, 3)],
-        {"mobile_days": 0, "death_probability": 1.0, "infection_probability": 0.0, "burial_infection_multiplier": 1.0},
+        {"mobile_days": 0, "case_fatality": 1.0, "infection_probability": 0.0, "burial_infection_multiplier": 1.0},
     )
     mechanic.infect(env, "a0", None, "test")
     step(env)
@@ -225,7 +225,7 @@ def test_infection_state_survives_a_checkpoint(tmp_path):
 
 
 def test_scenario_module_loads_and_the_preset_composes():
-    mechanics = load_scenario("pandemics", {"init_infected": 2, "lifespan": 5})
+    mechanics = load_scenario("pandemics", {"init_infected": 2, "infection_duration": 5})
     assert [type(m).__name__ for m in mechanics] == ["Epidemic"]
     assert mechanics[0].options.init_infected == 2
     with pytest.raises(ValueError):
@@ -240,7 +240,7 @@ def test_scenario_module_loads_and_the_preset_composes():
 def test_a_sick_host_that_starves_still_leaves_infectious_remains(tmp_path):
     env, mechanic = make_env(
         tmp_path, [(2, 2), (2, 3), (7, 7)],
-        {"mobile_days": 5, "mobile_infectiousness": 0.0, "energy_multiplier": 2.0},
+        {"mobile_days": 5, "feverish_multiplier": 0.0, "energy_multiplier": 2.0},
         init_agent_energy=3, energy_death=True,
     )
     mechanic.infect(env, "a0", None, "test")
@@ -259,8 +259,8 @@ def test_a_sick_host_that_starves_still_leaves_infectious_remains(tmp_path):
 def test_beings_beside_the_grave_are_exposed_at_a_burial(tmp_path):
     env, mechanic = make_env(
         tmp_path, [(2, 2), (2, 3), (2, 1), (7, 7)],
-        {"mobile_days": 0, "death_probability": 1.0, "infection_probability": 0.0,
-         "burial_infection_multiplier": 1.0, "funeral_attendance_multiplier": 1.0},
+        {"mobile_days": 0, "case_fatality": 1.0, "infection_probability": 0.0,
+         "burial_infection_multiplier": 1.0, "burial_bystander_multiplier": 1.0},
     )
     mechanic.infect(env, "a0", None, "test")
     for _ in range(3):
@@ -328,3 +328,33 @@ def test_runner_gives_the_personas_and_human_names_from_the_preset(tmp_path, mon
     assert "You are a religious leader." in runner.agents["being0"].system_prompt
     assert runner.agents["being4"].persona == ""
     assert runner.agents["being4"].system_prompt.count("You are a ") == runner.agents["being5"].system_prompt.count("You are a ")
+
+
+def test_case_fatality_is_the_share_that_dies_over_the_sick_period(tmp_path):
+    env, mechanic = make_env(tmp_path, [(2, 2)], {"infection_duration": 13, "mobile_days": 4, "case_fatality": 0.5})
+    mechanic.infect(env, "a0", None, "test")
+    infection = mechanic.state["infections"]["a0"]
+    infection["incubation"] = 0
+
+    def hazards(fatality):
+        mechanic.options.case_fatality = fatality
+        out = []
+        for day in range(1, 13):  # the 13th sick step recovers before the roll
+            infection["days_symptomatic"] = day
+            out.append(mechanic.death_hazard("a0"))
+        return out
+
+    alive = 1.0
+    for hazard in hazards(0.5):
+        alive *= 1 - hazard
+    assert alive == pytest.approx(0.5)
+    half = hazards(0.5)
+    assert half == sorted(half) and half[0] < 0.01
+    assert hazards(1.0)[-1] == 1.0
+    assert hazards(0.0) == [0.0] * 12
+    mechanic.options.infection_duration = -1  # never recovers: the share is the chance per bedridden step
+    mechanic.options.case_fatality = 0.5
+    infection["days_symptomatic"] = 1
+    assert mechanic.death_hazard("a0") == 0.0
+    infection["days_symptomatic"] = 4
+    assert mechanic.death_hazard("a0") == 0.5

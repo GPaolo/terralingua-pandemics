@@ -8,22 +8,22 @@ config:
       outbreak_step: 0
       incubation_min: 2
       incubation_max: 15
-      lifespan: 13
+      infection_duration: 13
       mobile_days: 4
-      mobile_infectiousness: 0.3
+      feverish_multiplier: 0.3
       infection_radius: 1
       infection_probability: 0.5
       contact_multiplier: 1.8
       energy_multiplier: 6
-      death_probability: 0.11
+      case_fatality: 0.5
       ppe_protection: 0.1
       ppe_role: health_worker
       ppe_per_worker: 20
       burials: true
       burial_infection_multiplier: 1.9
+      burial_bystander_multiplier: 1.5
       funeral_announcements: true
       funeral_announcement_radius: 10
-      funeral_attendance_multiplier: 1.5
       funeral_mourning_days: 0
       remains_lifespan: 10
       personas_path: personas.json
@@ -46,7 +46,7 @@ config:
     internal_memory_size: 150
     use_inventory: true
     use_colors: false
-    scenario_specific_instructions: pandemics/instructions.md
+    scenario_specific_instructions: instructions.md
   env:
     world_type: grid
     grid_size: 60

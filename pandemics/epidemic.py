@@ -84,7 +84,7 @@ class HealthCenterOptions(BaseModel):
     hazard_multiplier: float = Field(
         0.5,
         ge=0,
-        description="Multiplier on the death chance of sick beings within reach.",
+        description="Multiplier on the daily death chance of sick beings within reach.",
     )
     name: str = "Health Center"
     payload: str = (
@@ -109,14 +109,16 @@ class EpidemicOptions(BaseModel):
     outbreak_step: int = Field(0, ge=0, description="Step of the outbreak.")
     incubation_min: int = Field(2, ge=0, description="Shortest silent phase, in steps.")
     incubation_max: int = Field(15, ge=0, description="Longest silent phase, in steps.")
-    lifespan: int = Field(
+    infection_duration: int = Field(
         13, ge=-1, description="Sick steps until recovery. -1 means never."
     )
     mobile_days: int = Field(
         4, ge=0, description="Sick steps during which the host can still move."
     )
-    mobile_infectiousness: float = Field(
-        0.3, ge=0, description="Transmission multiplier while the host can still move."
+    feverish_multiplier: float = Field(
+        0.3,
+        ge=0,
+        description="Multiplier on infection_probability while the host is feverish and still mobile. Bedridden hosts and remains spread at the full chance.",
     )
     infection_radius: int = Field(
         1, ge=0, description="Distance at which the sickness passes between beings."
@@ -125,21 +127,23 @@ class EpidemicOptions(BaseModel):
         0.5,
         ge=0,
         le=1,
-        description="Chance per step of catching it from one nearby source.",
+        description="Base chance, per step and per source, that a being within infection_radius of a bedridden host or of unburied remains catches it. Every other exposure multiplies this chance.",
     )
     contact_multiplier: float = Field(
-        1.8, ge=0, description="Multiplier on that chance when energy or an artifact changes hands."
+        1.8,
+        ge=0,
+        description="Multiplier on infection_probability for the extra exposure when energy or an artifact changes hands with a sick host.",
     )
     energy_multiplier: float = Field(
         6.0,
         ge=1,
         description="Energy a sick host loses per step, as a multiple of the normal loss.",
     )
-    death_probability: float = Field(
-        0.11,
+    case_fatality: float = Field(
+        0.5,
         ge=0,
         le=1,
-        description="Death chance per sick step at the end of the sick period.",
+        description="Share of the sick who die of it. The daily chance is derived from this and rises over the sick period, so deaths come late. With infection_duration -1 it is the chance per bedridden step instead.",
     )
     ppe_protection: float = Field(
         0.1,
@@ -160,7 +164,12 @@ class EpidemicOptions(BaseModel):
     burial_infection_multiplier: float = Field(
         1.9,
         ge=0,
-        description="Multiplier on the infection chance of the being that buries remains.",
+        description="Multiplier on infection_probability for the one exposure the burier takes handling the remains.",
+    )
+    burial_bystander_multiplier: float = Field(
+        1.5,
+        ge=0,
+        description="Multiplier on infection_probability for the one exposure each being next to the remains takes when they are buried, whether or not it meant to attend.",
     )
     funeral_announcements: bool = Field(
         True,
@@ -168,11 +177,6 @@ class EpidemicOptions(BaseModel):
     )
     funeral_announcement_radius: int = Field(
         10, ge=-1, description="How far the announcement reaches. -1 means everyone."
-    )
-    funeral_attendance_multiplier: float = Field(
-        1.5,
-        ge=0,
-        description="Multiplier on the infection chance of beings beside the grave at a burial.",
     )
     funeral_mourning_days: int = Field(
         0, ge=0, description="Steps during which remains refuse burial."
@@ -413,7 +417,9 @@ class Epidemic(Mechanic):
         )
         return infection_id
 
-    def source_infection(self, env, source_tag: str | None, source_kind: str) -> str | None:
+    def source_infection(
+        self, env, source_tag: str | None, source_kind: str
+    ) -> str | None:
         """The id of the infection a new one comes from: the host's, or the one the remains carry."""
         if source_tag is not None:
             source = self.state["infections"].get(source_tag)
@@ -566,7 +572,7 @@ class Epidemic(Mechanic):
             if tag not in env.agent_registry or not self.symptomatic(tag):
                 continue
             env.agent_energy[tag] -= o.energy_multiplier - 1
-            hazard = o.death_probability * self.death_fraction(tag) * care.get(tag, 1.0)
+            hazard = self.death_hazard(tag) * care.get(tag, 1.0)
             if hazard > 0 and self.rng(env).random() < hazard:
                 env.kill(tag, "sickness")
         self.appetite(env)
@@ -674,7 +680,7 @@ class Epidemic(Mechanic):
             for source, target in ((giver, receiver), (receiver, giver)):
                 if source in self.state["infections"] and self.symptomatic(source):
                     factor = (
-                        o.mobile_infectiousness
+                        o.feverish_multiplier
                         if self.health(source) == "feverish"
                         else 1.0
                     )
@@ -722,9 +728,7 @@ class Epidemic(Mechanic):
                 continue
             if not self.symptomatic(source):
                 continue
-            factor = (
-                o.mobile_infectiousness if self.health(source) == "feverish" else 1.0
-            )
+            factor = o.feverish_multiplier if self.health(source) == "feverish" else 1.0
             for target in env.agents_within(source, o.infection_radius):
                 self.expose(
                     env, target, o.infection_probability * factor, source, "proximity"
@@ -759,7 +763,10 @@ class Epidemic(Mechanic):
             ):
                 continue
             infection["days_symptomatic"] += 1
-            if o.lifespan >= 0 and infection["days_symptomatic"] >= o.lifespan:
+            if (
+                o.infection_duration >= 0
+                and infection["days_symptomatic"] >= o.infection_duration
+            ):
                 self.recover(env, tag, "recovery")
 
     def record_state(self, env) -> None:
@@ -793,7 +800,10 @@ class Epidemic(Mechanic):
                 len(inventory),
                 int(infected),
                 int(sick),
-                sum(isinstance(env.artifacts.get(name), PPEArtifact) for name in inventory),
+                sum(
+                    isinstance(env.artifacts.get(name), PPEArtifact)
+                    for name in inventory
+                ),
                 int(tag in self.state["recovered"]),
                 int(bedridden),
             ]
@@ -814,14 +824,20 @@ class Epidemic(Mechanic):
             n_bedridden=n_bedridden,
         )
 
-    def death_fraction(self, tag: str) -> float:
-        """How far the host is into the sick period, from 0 to 1."""
-        infection = self.state["infections"][tag]
-        if self.options.lifespan < 0:
-            return 1.0 if self.health(tag) == "bedridden" else 0.0
-        if self.options.lifespan == 0:
-            return 1.0
-        return min(1.0, infection["days_symptomatic"] / self.options.lifespan)
+    def death_hazard(self, tag: str) -> float:
+        """Chance that the host dies this step, before care. Deaths are spread over
+        the sick period with a weight rising by day, so a share case_fatality dies in all."""
+        o = self.options
+        day = self.state["infections"][tag]["days_symptomatic"]
+        if o.infection_duration < 0:
+            return o.case_fatality if self.health(tag) == "bedridden" else 0.0
+        days = o.infection_duration - 1  # the last sick step recovers before the roll
+        if days < 1 or day > days:
+            return 0.0
+        total = days * (days + 1)
+        return min(
+            1.0, 2 * o.case_fatality * day / (total - o.case_fatality * (day - 1) * day)
+        )
 
     def bury(self, env, tag: str, params: dict) -> str:
         o = self.options
@@ -852,7 +868,7 @@ class Epidemic(Mechanic):
             self.expose(
                 env,
                 other,
-                o.infection_probability * o.funeral_attendance_multiplier,
+                o.infection_probability * o.burial_bystander_multiplier,
                 None,
                 f"funeral:{ref}",
             )
