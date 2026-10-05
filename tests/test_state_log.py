@@ -113,7 +113,7 @@ def test_the_mechanic_runs_on_a_graph_world_without_a_state_file(tmp_path):
         init_food=0, food_spawn_rate=0, log_path=tmp_path, drop_food_on_death=False, use_inventory=True,
         use_colors=False, reproduction_cost=-1, artifact_creation_cost=0, headless=True,
     )
-    mechanic = Epidemic(EpidemicOptions(**{**FAST, "init_infected": 1, "health_center": None}))
+    mechanic = Epidemic(EpidemicOptions(**{**FAST, "init_infected": 1}))
     env.attach(mechanic)
     nodes = env.world_graph.all_nodes()
     env.add_agent("a0", "Ada", "text", position=nodes[0])

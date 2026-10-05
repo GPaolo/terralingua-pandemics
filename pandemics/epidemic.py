@@ -65,7 +65,7 @@ CONTACT_TEXT = {
 
 
 class HealthCenterOptions(BaseModel):
-    """One health center, seeded at the start."""
+    """One health center: an entry of the health_centers_path file."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -186,8 +186,11 @@ class EpidemicOptions(BaseModel):
         ge=-1,
         description="Steps that remains stay on the ground. -1 means forever.",
     )
-    health_center: HealthCenterOptions | None = Field(
-        None, description="A health center to seed at the start, or null."
+    health_centers_path: str | None = Field(
+        None,
+        description="JSON list of health centers to seed at the start, each "
+        "with its own pose, radius, heal_probability, hazard_multiplier, "
+        "name, and payload. Relative to the scenario folder. null seeds none.",
     )
     personas_path: str = Field(
         "personas.json",
@@ -580,17 +583,33 @@ class Epidemic(Mechanic):
         self.record_state(env)
 
     # ---------- rules ----------
+    def health_centers(self) -> List[HealthCenterOptions]:
+        """The entries of the health_centers_path file, validated, in file order."""
+        if self.options.health_centers_path is None:
+            return []
+        path = Path(self.options.health_centers_path)
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parent / path
+        if not path.exists():
+            raise FileNotFoundError(f"health centers file not found: {path}")
+        entries = json.loads(path.read_text())
+        if not isinstance(entries, list):
+            raise ValueError(f"{path} must hold a JSON list of health centers")
+        return [HealthCenterOptions.model_validate(entry) for entry in entries]
+
     def seed_fixtures(self, env) -> None:
-        """Place the health center and hand protective equipment to its role, once."""
+        """Place the health centers and hand protective equipment to its role, once."""
         o = self.options
         self.state["seeded"] = True
-        center = o.health_center
-        if center is not None:
+        grid_size = getattr(env, "grid_size", None)
+        for center in self.health_centers():
             pose = tuple(center.pose) if isinstance(center.pose, list) else center.pose
-            grid_size = getattr(env, "grid_size", None)
-            if grid_size and not all(0 <= int(c) < grid_size for c in pose):
+            if grid_size and isinstance(pose, tuple) and not all(
+                0 <= int(c) < grid_size for c in pose
+            ):
                 raise ValueError(
-                    f"health_center.pose {list(pose)} lies outside the {grid_size}x{grid_size} grid"
+                    f"health center '{center.name}' pose {list(pose)} lies "
+                    f"outside the {grid_size}x{grid_size} grid"
                 )
             env.seed_artifact(
                 pose,

@@ -1,0 +1,8 @@
+[
+  {
+    "pose": [25, 25],
+    "radius": 1,
+    "heal_probability": 0.0,
+    "hazard_multiplier": 0.5
+  }
+]

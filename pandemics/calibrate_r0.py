@@ -141,7 +141,7 @@ def main():
     options = EpidemicOptions(**{
         **cfg.run.scenario_options,
         "ppe_per_worker": 0,
-        "health_center": None,
+        "health_centers_path": None,
     })
     world = dict(
         grid_size=args.grid,

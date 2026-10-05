@@ -27,11 +27,7 @@ config:
       funeral_mourning_days: 0
       remains_lifespan: 10
       personas_path: personas.json
-      health_center:
-        pose: [25, 25]
-        radius: 1
-        heal_probability: 0.0
-        hazard_multiplier: 0.5
+      health_centers_path: health_centers.json
     exp_name: ebola
     exp_description: Ebola-calibrated contact sickness with incubation
     max_ts: 200

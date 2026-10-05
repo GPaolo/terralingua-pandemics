@@ -33,7 +33,7 @@ FAST = dict(
     feverish_multiplier=1.0, infection_probability=1.0, contact_multiplier=1.0,
     energy_multiplier=1.0, case_fatality=0.0, ppe_protection=0.0, ppe_per_worker=0,
     funeral_announcement_radius=-1, funeral_mourning_days=0, remains_lifespan=-1,
-    health_center=None,
+    health_centers_path=None,
 )
 
 
@@ -201,9 +201,16 @@ def test_burial_is_an_exposure_for_the_digger(tmp_path):
     assert events(env, "VIRAL_INFECTION")[-1]["source_kind"] == f"burial:{name}"
 
 
+def centers_file(tmp_path, centers):
+    path = tmp_path / "health_centers.json"
+    path.write_text(json.dumps(centers))
+    return str(path)
+
+
 def test_health_center_heals_and_announces_itself(tmp_path):
     center = {"pose": [2, 3], "radius": 1, "heal_probability": 1.0, "hazard_multiplier": 0.5}
-    env, mechanic = make_env(tmp_path, [(2, 2), (7, 7)], {"health_center": center})
+    path = centers_file(tmp_path, [center])
+    env, mechanic = make_env(tmp_path, [(2, 2), (7, 7)], {"health_centers_path": path})
     mechanic.infect(env, "a0", None, "test")
     infos = step(env)  # seeds the center, then care heals a0 at once
     assert isinstance(env.artifacts["Health Center"], HealthCenterArtifact)
@@ -211,6 +218,32 @@ def test_health_center_heals_and_announces_itself(tmp_path):
     assert "Nearby facilities" not in infos["a1"]
     assert mechanic.health("a0") == "healthy"
     assert events(env, "VIRAL_HEALED")[-1]["cause"] == "care"
+
+
+def test_each_health_center_keeps_its_own_parameters(tmp_path):
+    path = centers_file(tmp_path, [
+        {"pose": [2, 3], "radius": 1, "heal_probability": 1.0, "name": "Clinic"},
+        {"pose": [7, 7], "radius": 1, "heal_probability": 0.0, "hazard_multiplier": 0.25, "name": "Shrine"},
+    ])
+    env, mechanic = make_env(tmp_path, [(2, 2), (7, 6)], {"health_centers_path": path})
+    mechanic.infect(env, "a0", None, "test")
+    mechanic.infect(env, "a1", None, "test")
+    step(env)
+    assert isinstance(env.artifacts["Clinic"], HealthCenterArtifact)
+    assert isinstance(env.artifacts["Shrine"], HealthCenterArtifact)
+    assert mechanic.health("a0") == "healthy"  # the Clinic heals at once
+    assert mechanic.health("a1") != "healthy"  # the Shrine never heals
+    assert mechanic.care(env)["a1"] == 0.25  # but it lowers the hazard
+
+
+def test_health_centers_file_must_exist_and_validate(tmp_path):
+    env, _ = make_env(tmp_path, [(2, 2)], {"health_centers_path": str(tmp_path / "missing.json")})
+    with pytest.raises(FileNotFoundError):
+        step(env)
+    path = centers_file(tmp_path, [{"pose": [2, 3], "heal_chance": 1.0}])
+    env, _ = make_env(tmp_path / "second", [(2, 2)], {"health_centers_path": path})
+    with pytest.raises(ValueError, match="heal_chance"):
+        step(env)
 
 
 def test_infection_state_survives_a_checkpoint(tmp_path):
@@ -320,7 +353,7 @@ def test_runner_gives_the_personas_and_human_names_from_the_preset(tmp_path, mon
     monkeypatch.setattr(runner_module, "LOGS_DIR", tmp_path)
     monkeypatch.setattr(runner_module, "LLMRouter", lambda **kw: types.SimpleNamespace(**kw))
     cfg = compose("ebola", {"init_agents": 6, "min_agents": 0, "grid_size": 12, "exp_name": "ebola_runner_test",
-                            "scenario_options": {"health_center": {"pose": [5, 5]}}})
+                            "scenario_options": {"health_centers_path": None}})
     runner = SimulationRunner(cfg)
     names = [runner.env.agent_names[f"being{i}"] for i in range(6)]
     assert names[:4] == ["Ezekiel", "Amara", "Miriam", "Tendai"]
