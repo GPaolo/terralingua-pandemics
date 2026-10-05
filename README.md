@@ -8,6 +8,8 @@ Most beings are told nothing about the sickness. A few personas, such as the hea
 
 The repo also ships a viewer to follow a run, an analysis agent (the AI Anthropologist) to study the results, and the TerraLingua launcher, a web page that configures and starts runs.
 
+![The viewer replaying the Ebola run: the world map, the chat, the artifacts the beings write, the selected being's action and thought, and the charts](docs/viewer.gif)
+
 ## Install
 
 Requires Python 3.10 or newer. Installing this package also installs TerraLingua and the launcher from their main branches.
