@@ -2,6 +2,7 @@
 
 import json
 
+import pytest
 from terralingua.config.models import GraphConfig
 from terralingua.environment.graph_env import OpenGraphWorld
 
@@ -107,20 +108,36 @@ def test_the_metrics_loader_keeps_the_latest_line_of_a_repeated_step(tmp_path):
     assert frames[2]["food_total"] == 0.0
 
 
-def test_the_mechanic_runs_on_a_graph_world_without_a_state_file(tmp_path):
+def graph_env(tmp_path, options):
+    """A six-node ring with two beings and the mechanic attached."""
     env = OpenGraphWorld(
         graph_cfg=GraphConfig(topology="ring", n_nodes=6, hop_radius=1), init_agent_energy=100, lifespan=200,
         init_food=0, food_spawn_rate=0, log_path=tmp_path, drop_food_on_death=False, use_inventory=True,
         use_colors=False, reproduction_cost=-1, artifact_creation_cost=0, headless=True,
     )
-    mechanic = Epidemic(EpidemicOptions(**{**FAST, "init_infected": 1}))
+    mechanic = Epidemic(EpidemicOptions(**{**FAST, **options}))
     env.attach(mechanic)
     nodes = env.world_graph.all_nodes()
     env.add_agent("a0", "Ada", "text", position=nodes[0])
     env.add_agent("a1", "Bo", "text", position=nodes[1])
     env.restart_env(seed=3, agent_poses={"a0": nodes[0], "a1": nodes[1]})
+    return env, mechanic
+
+
+def graph_step(env):
+    return env.step({tag: {"action": "move", "params": {"direction": "stay"}} for tag in env.agent_registry})
+
+
+def test_the_mechanic_runs_on_a_graph_world_without_a_state_file(tmp_path):
+    env, mechanic = graph_env(tmp_path, {"init_infected": 1})
     for _ in range(3):
-        env.step({tag: {"action": "move", "params": {"direction": "stay"}} for tag in env.agent_registry})
+        graph_step(env)
     assert mechanic.world_log is None
     assert not (tmp_path / "world_state.jsonl").exists()
     assert len(mechanic.state["infections"]) + len(mechanic.state["recovered"]) >= 1
+
+
+def test_airborne_spread_refuses_a_graph_world(tmp_path):
+    env, _ = graph_env(tmp_path, {"airborne": True})
+    with pytest.raises(ValueError, match="grid world"):
+        graph_step(env)

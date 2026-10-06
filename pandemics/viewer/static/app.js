@@ -402,6 +402,15 @@ function drawMap() {
     ctx.fillRect(y * cell, x * cell, cell, cell);
   }
 
+  // Infectious air is a haze over the cell: denser with the load, over food too.
+  for (const [x, y, v] of state.world.air || []) {
+    ctx.fillStyle = cssVar("--air");
+    ctx.globalAlpha = 0.2 + 0.6 * Math.min(1, v);
+    ctx.fillRect(y * cell, x * cell, cell, cell);
+    $("#legend-air").hidden = false;
+  }
+  ctx.globalAlpha = 1;
+
   if (cell >= 6) {
     ctx.strokeStyle = cssVar("--grid-line");
     ctx.lineWidth = 0.5;
@@ -1047,6 +1056,8 @@ function tooltipHtml(x, y) {
   let clickable = 0;
   const food = state.world.food.find((f) => f[0] === x && f[1] === y);
   if (food) html += `<div>food ${food[2]}</div>`;
+  const air = (state.world.air || []).find((c) => c[0] === x && c[1] === y);
+  if (air) html += `<div>☁ air ${air[2]}</div>`;
   for (const [tag, a] of Object.entries(state.world.agents)) {
     if (a[0] !== x || a[1] !== y) continue;
     // Plain text tooltip, so the glyph is the only channel available here.

@@ -1,4 +1,4 @@
-"""The Ebola scenario. Select it with run.scenario: pandemics."""
+"""The pandemics scenario. Select it with run.scenario: pandemics."""
 
 from terralingua.config.dependencies import either, when
 
@@ -10,6 +10,7 @@ Options = EpidemicOptions
 BURIALS = when("burials", const=True)
 ANNOUNCEMENTS = when("funeral_announcements", const=True)
 EQUIPMENT = when("ppe_per_worker", minimum=1)
+AIR = when("airborne", const=True)
 
 # Which options apply only when another option turns a rule on. The engine
 # warns at start when a run sets an inert option, and lists them in
@@ -23,6 +24,10 @@ APPLICABILITY = {
     "funeral_announcement_radius": (ANNOUNCEMENTS, "Requires funeral announcements."),
     "ppe_protection": (EQUIPMENT, "Requires protective equipment for a role."),
     "ppe_role": (EQUIPMENT, "Requires protective equipment for a role."),
+    "airborne_multiplier": (AIR, "Requires airborne spread."),
+    "airborne_decay": (AIR, "Requires airborne spread."),
+    "airborne_radius": (AIR, "Requires airborne spread."),
+    "airborne_presymptomatic_days": (AIR, "Requires airborne spread."),
 }
 
 

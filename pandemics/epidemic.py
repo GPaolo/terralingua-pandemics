@@ -1,4 +1,4 @@
-"""The Ebola mechanic: infection, sickness, care, death, remains, and burial.
+"""The sickness mechanic: infection, sickness, care, death, remains, and burial.
 
 Every rule runs inside the three Mechanic hooks. The world never learns what an
 infection is. Infection state lives in `self.state`, which the world saves and
@@ -8,8 +8,11 @@ An infection has three phases. It incubates silently, then the host is
 feverish and still able to act, then bedridden. Transmission happens by
 standing near a sick host or unburied remains, by giving or taking energy or
 handing over an artifact with a sick host, and by burying remains or standing
-beside the grave. Protective equipment lowers the chance. A health center may
-heal and lowers the death hazard. Recovery gives immunity.
+beside the grave. With `airborne` on, hosts also load the air of the cells
+around them with infectious particles, which linger and expose whoever stands
+in them.
+Protective equipment lowers the chance. A health center may heal and lowers
+the death hazard. Recovery gives immunity.
 """
 
 import json
@@ -43,6 +46,9 @@ RECOVERED_NOTICE = (
     "it: you cannot catch the sickness again, even from the sick or from "
     "remains."
 )
+
+#: Particle loads below this are dropped from the air.
+AIR_FLOOR = 0.01
 
 # Every being-to-being exchange is contact: an adjacent being, not merely one in view.
 CONTACT_TEXT = {
@@ -101,7 +107,7 @@ class HealthCenterOptions(BaseModel):
 
 
 class EpidemicOptions(BaseModel):
-    """Settings of the Ebola scenario, given as run.scenario_options."""
+    """Settings of the pandemics scenario, given as run.scenario_options."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -133,6 +139,31 @@ class EpidemicOptions(BaseModel):
         1.8,
         ge=0,
         description="Multiplier on infection_probability for the extra exposure when energy or an artifact changes hands with a sick host.",
+    )
+    airborne: bool = Field(
+        False,
+        description="Hosts load the air of the cells around them with infectious particles. The air lingers and exposes the beings standing in it. Grid worlds only.",
+    )
+    airborne_multiplier: float = Field(
+        0.2,
+        ge=0,
+        description="Multiplier on infection_probability per unit of particle load in a being's cell. One unit is what an unprotected bedridden host sheds in one step; a mobile host sheds feverish_multiplier, a host with protective equipment sheds its protection factor times that.",
+    )
+    airborne_decay: float = Field(
+        0.5,
+        ge=0,
+        le=1,
+        description="Share of a cell's particles still in the air after one step.",
+    )
+    airborne_radius: int = Field(
+        1,
+        ge=0,
+        description="Distance within which a shedding host loads the air: every cell within it receives the host's full shedding each step.",
+    )
+    airborne_presymptomatic_days: int = Field(
+        0,
+        ge=0,
+        description="Incubating hosts shed particles during their last this many steps before symptoms.",
     )
     energy_multiplier: float = Field(
         6.0,
@@ -192,6 +223,7 @@ class EpidemicOptions(BaseModel):
         "with its own pose, radius, heal_probability, hazard_multiplier, "
         "name, and payload. Relative to the working directory. null seeds none.",
     )
+
     @model_validator(mode="after")
     def _ordered(self):
         if self.incubation_min > self.incubation_max:
@@ -213,6 +245,7 @@ class Epidemic(Mechanic):
                 "reminders": [],
                 "seeded": False,
                 "identities": {},
+                "air": {},  # "row,col" -> {infection_id: load}
             }
         )
         self.world_log: WorldStateLogger | None = None
@@ -389,12 +422,16 @@ class Epidemic(Mechanic):
     def source_infection(
         self, env, source_tag: str | None, source_kind: str
     ) -> str | None:
-        """The id of the infection a new one comes from: the host's, or the one the remains carry."""
+        """The id of the infection a new one comes from: the one named by the air,
+        the host's, or the one the remains carry."""
+        kind, _, ref = source_kind.partition(":")
+        if kind == "air":
+            return ref or None
         if source_tag is not None:
             source = self.state["infections"].get(source_tag)
             return source["id"] if source else None
-        if ":" in source_kind:
-            remains = env.artifacts.get(source_kind.split(":", 1)[1])
+        if ref:
+            remains = env.artifacts.get(ref)
             return getattr(remains, "infection_id", None) or None
         return None
 
@@ -529,6 +566,8 @@ class Epidemic(Mechanic):
         self.advance_incubation(env)
         care = self.care(env)
         self.spread(env)
+        if o.airborne:
+            self.air(env)
         self.advance_symptoms(env)
         if step == o.outbreak_step and o.init_infected > 0:
             candidates = sorted(
@@ -568,8 +607,10 @@ class Epidemic(Mechanic):
         grid_size = getattr(env, "grid_size", None)
         for center in self.health_centers():
             pose = tuple(center.pose) if isinstance(center.pose, list) else center.pose
-            if grid_size and isinstance(pose, tuple) and not all(
-                0 <= int(c) < grid_size for c in pose
+            if (
+                grid_size
+                and isinstance(pose, tuple)
+                and not all(0 <= int(c) < grid_size for c in pose)
             ):
                 raise ValueError(
                     f"health center '{center.name}' pose {list(pose)} lies "
@@ -630,7 +671,9 @@ class Epidemic(Mechanic):
             )
             if not o.funeral_announcements or name is None:
                 continue
-            if o.funeral_mourning_days > 0:
+            if not o.burials:
+                mourning = ""
+            elif o.funeral_mourning_days > 0:
                 d = o.funeral_mourning_days
                 mourning = f" The mourning lasts {d} day{'s' if d != 1 else ''}; only then may the remains be buried."
                 # Written one step early, so the note arrives with the first step that allows the burial.
@@ -723,6 +766,124 @@ class Epidemic(Mechanic):
                         env, target, o.infection_probability, None, f"remains:{name}"
                     )
 
+    # ---------- air ----------
+    # The air of a cell holds a particle load per infection. Each step it decays,
+    # the beings standing in it breathe it, and then every shedding host loads the
+    # cells within airborne_radius of it. So the air reaches further than the
+    # proximity rule, stays after the host has left, and builds up where hosts
+    # crowd. Grid worlds only.
+
+    @staticmethod
+    def air_key(pos) -> str:
+        return f"{int(pos[0])},{int(pos[1])}"
+
+    @staticmethod
+    def air_cell(key: str) -> tuple:
+        row, col = key.split(",")
+        return int(row), int(col)
+
+    def air(self, env) -> None:
+        """The airborne route: age the air, expose who breathes it, then shed into it."""
+        if not hasattr(env, "grid_size"):
+            raise ValueError("airborne spread needs a grid world")
+        self.age_air(env)
+        self.breathe(env)
+        self.shed(env)
+
+    @staticmethod
+    def within(env, pos, radius: int) -> List[tuple]:
+        """The cells within a distance of a cell of the torus grid, the cell included."""
+        size = env.grid_size
+        span = range(-min(radius, size // 2), min(radius, size // 2) + 1)
+        return sorted(
+            {((pos[0] + dr) % size, (pos[1] + dc) % size) for dr in span for dc in span}
+        )
+
+    @staticmethod
+    def add_air(
+        air: Dict[str, Dict[str, float]], key: str, infection_id: str, load: float
+    ):
+        cell = air.setdefault(key, {})
+        cell[infection_id] = cell.get(infection_id, 0.0) + load
+
+    def air_loads(self) -> List[list]:
+        """[row, col, total load] for every cell with particles in its air."""
+        return [
+            [*self.air_cell(key), round(sum(loads.values()), 3)]
+            for key, loads in sorted(self.state["air"].items())
+            if loads
+        ]
+
+    def shedding(self, env, tag: str) -> float:
+        """Particles the host adds to each cell within airborne_radius this step: the
+        host factor times its own protection factor. 0 for a healthy host or one still silent."""
+        o = self.options
+        infection = self.state["infections"].get(tag)
+        if infection is None or infection["acquired_at"] == env.step_count:
+            return 0.0
+        health = self.health(tag)
+        if (
+            health == "incubating"
+            and infection["incubation"] > o.airborne_presymptomatic_days
+        ):
+            return 0.0
+        factor = 1.0 if health == "bedridden" else o.feverish_multiplier
+        return factor * self.protection(env, tag)
+
+    def age_air(self, env) -> None:
+        """Decay every load, dropping the traces."""
+        decay = self.options.airborne_decay
+        self.state["air"] = {
+            key: kept
+            for key, loads in self.state["air"].items()
+            if (
+                kept := {
+                    i: load * decay
+                    for i, load in loads.items()
+                    if load * decay >= AIR_FLOOR
+                }
+            )
+        }
+
+    def breathe(self, env) -> None:
+        """Every susceptible being standing in loaded air takes one exposure, charged
+        to one of the infections in the air by load share, so the chain stays exact."""
+        o = self.options
+        rng = self.rng(env)
+        for tag, pos in sorted(env.agent_pos.items()):
+            loads = self.state["air"].get(self.air_key(pos))
+            if not loads or not self.susceptible(env, tag):
+                continue
+            total = sum(loads.values())
+            ids = sorted(loads)
+            chosen = ids[int(rng.choice(len(ids), p=[loads[i] / total for i in ids]))]
+            host = next(
+                (
+                    t
+                    for t, infection in self.state["infections"].items()
+                    if infection["id"] == chosen and t in env.agent_registry
+                ),
+                None,
+            )
+            probability = min(
+                1.0, o.infection_probability * o.airborne_multiplier * total
+            )
+            self.expose(env, tag, probability, host, f"air:{chosen}")
+
+    def shed(self, env) -> None:
+        """Every shedding host loads the air of the cells within airborne_radius."""
+        for tag in sorted(self.state["infections"]):
+            if tag not in env.agent_registry or tag not in env.agent_pos:
+                continue
+            load = self.shedding(env, tag)
+            if load <= 0:
+                continue
+            infection_id = self.state["infections"][tag]["id"]
+            for cell in self.within(
+                env, env.agent_pos[tag], self.options.airborne_radius
+            ):
+                self.add_air(self.state["air"], self.air_key(cell), infection_id, load)
+
     def advance_incubation(self, env) -> None:
         """Count down the silent phase of infections that did not start this step."""
         step = env.step_count
@@ -805,6 +966,7 @@ class Epidemic(Mechanic):
             n_infected=n_infected,
             n_sick=n_sick,
             n_bedridden=n_bedridden,
+            air=self.air_loads() if self.options.airborne else [],
         )
 
     def death_hazard(self, tag: str) -> float:

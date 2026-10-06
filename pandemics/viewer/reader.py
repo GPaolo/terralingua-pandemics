@@ -8,10 +8,11 @@ the top. A run folder holds these files.
     Written by the mechanic, one line per step. Line 1 is a ``meta`` header.
     It gives ``grid_size``, ``max_food_value`` and ``agent_fields``, the order
     of the values in each being's row. Every later line has ``kind`` (``key``
-    or ``delta``), ``t``, ``agents`` (tag to row), ``food`` and ``artifacts``.
-    A ``key`` line gives food and artifacts in full under ``set``. A ``delta``
-    line gives the changes under ``add`` and ``del``. An artifact entry is
-    ``[row, col, name, kind]``. Each line also carries ``food_total``,
+    or ``delta``), ``t``, ``agents`` (tag to row), ``food``, ``artifacts`` and
+    ``air`` (older files have no ``air``). A ``key`` line gives them in full
+    under ``set``. A ``delta`` line gives the changes under ``add`` and
+    ``del``. An artifact entry is ``[row, col, name, kind]``; an air entry is
+    ``[row, col, load]``. Each line also carries ``food_total``,
     ``n_agents``, ``n_infected``, ``n_sick`` and ``n_bedridden``. The line for
     step T is written before that step's energy drain and deaths.
 
@@ -361,6 +362,7 @@ class RunReader:
                 break
 
         food: Dict[tuple, float] = {}
+        air: Dict[tuple, float] = {}
         artifacts: Dict[tuple, List[tuple]] = {}
         for ts in range(base, t + 1):
             r = self._steps.get(ts)
@@ -368,14 +370,16 @@ class RunReader:
                 continue
             if r["kind"] == "key":
                 food = {(x, y): v for x, y, v in r["food"].get("set", [])}
+                air = {(x, y): v for x, y, v in r.get("air", {}).get("set", [])}
                 artifacts = {}
                 for x, y, name, kind in r["artifacts"].get("set", []):
                     artifacts.setdefault((x, y), []).append((name, kind))
             else:
-                for x, y, v in r["food"].get("add", []):
-                    food[(x, y)] = v
-                for x, y in r["food"].get("del", []):
-                    food.pop((x, y), None)
+                for cells, part in ((food, r["food"]), (air, r.get("air", {}))):
+                    for x, y, v in part.get("add", []):
+                        cells[(x, y)] = v
+                    for x, y in part.get("del", []):
+                        cells.pop((x, y), None)
                 for x, y, name, kind in r["artifacts"].get("add", []):
                     artifacts.setdefault((x, y), []).append((name, kind))
                 for x, y, name, kind in r["artifacts"].get("del", []):
@@ -390,6 +394,7 @@ class RunReader:
             "t": t,
             "agents": r["agents"],
             "food": [[x, y, v] for (x, y), v in food.items()],
+            "air": [[x, y, v] for (x, y), v in air.items()],
             "artifacts": [
                 [x, y, *entry]
                 for (x, y), entries in artifacts.items()

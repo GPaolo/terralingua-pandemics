@@ -36,6 +36,8 @@ FAST = dict(
     funeral_announcement_radius=-1, funeral_mourning_days=0, remains_lifespan=-1,
     health_centers_path=None,
 )
+# The air alone: no proximity spread, hosts load only their own cell, and half a unit of air is a certain exposure.
+AIR = dict(airborne=True, infection_radius=0, airborne_radius=0, airborne_multiplier=2.0)
 
 
 def make_env(tmp_path, agents, options=None, **env_kwargs):
@@ -264,12 +266,16 @@ def test_scenario_module_loads_and_the_preset_composes():
     assert mechanics[0].options.init_infected == 2
     with pytest.raises(ValueError):
         load_scenario("pandemics", {"incubation_min": 5, "incubation_max": 2})
-    cfg = compose("ebola")
-    assert cfg.run.scenario == "pandemics"
-    assert cfg.env.world_type == "grid"
-    assert Path(cfg.agent.scenario_specific_instructions).read_text() == ""
-    options = EpidemicOptions.model_validate(cfg.run.scenario_options)
-    assert len(Epidemic(options).health_centers()) == 1  # ebola/health_centers.json, from the working directory
+    for preset in ("ebola", "covid"):
+        cfg = compose(preset)
+        assert cfg.run.scenario == "pandemics"
+        assert cfg.env.world_type == "grid"
+        assert Path(cfg.agent.scenario_specific_instructions).read_text() == ""
+        options = EpidemicOptions.model_validate(cfg.run.scenario_options)
+        assert len(Epidemic(options).health_centers()) == 1  # <preset>/health_centers.json, from the working directory
+        assert options.airborne == (preset == "covid")
+        assert options.burials == (preset == "ebola")
+    assert options.airborne_presymptomatic_days > 0  # covid: carriers spread before their symptoms
 
 
 def test_a_sick_host_that_starves_still_leaves_infectious_remains(tmp_path):
@@ -312,6 +318,73 @@ def test_beings_beside_the_grave_are_exposed_at_a_burial(tmp_path):
     assert name not in env.artifacts
 
 
+def test_hosts_load_the_air_around_them_and_it_decays(tmp_path):
+    env, mechanic = make_env(tmp_path, [(0, 0), (7, 7)], {**AIR, "airborne_radius": 1, "airborne_decay": 0.5})
+    mechanic.infect(env, "a0", None, "test")
+    step(env)  # still silent: nothing shed
+    assert mechanic.state["air"] == {}
+    step(env)  # feverish: one unit lands on each of the nine cells around it, wrapping at the edge
+    air = mechanic.state["air"]
+    assert len(air) == 9 and air["0,0"] == {"virus_i1": 1.0} and air["9,9"] == {"virus_i1": 1.0}
+    step(env)  # the units halve and a new one lands
+    assert mechanic.state["air"]["9,1"]["virus_i1"] == pytest.approx(1.5)
+    assert mechanic.air_loads()[0] == [0, 0, 1.5]
+    assert mechanic.health("a1") == "healthy"
+    env.agent_pos["a0"] = (5, 5)  # the host is gone: the air it left halves each step until it is a trace
+    for _ in range(8):
+        step(env)
+    assert "0,0" not in mechanic.state["air"] and len(mechanic.state["air"]) == 9  # only the new cells hold air
+
+
+def test_a_being_catches_it_from_the_air_a_host_left_behind(tmp_path):
+    env, mechanic = make_env(tmp_path, [(2, 2), (2, 3), (7, 7)], {**AIR, "airborne_decay": 1.0})
+    mechanic.infect(env, "a0", None, "test")
+    step(env)
+    step(env)  # a0 is feverish and leaves a unit of air on (2, 2); a1 next to it is safe at radius 0
+    assert mechanic.health("a1") == "healthy"
+    step(env, a0={"action": "move", "params": {"direction": "down"}})  # cells are exclusive: a0 leaves first
+    assert mechanic.health("a1") == "healthy"
+    step(env, a1={"action": "move", "params": {"direction": "left"}})
+    assert env.agent_pos["a0"] == (3, 2) and env.agent_pos["a1"] == (2, 2)
+    assert mechanic.health("a1") == "incubating"
+    infection = events(env, "VIRAL_INFECTION")[-1]
+    assert infection["agent_tag"] == "a1" and infection["source_kind"] == "air:virus_i1"
+    assert infection["source_tag"] == "a0" and infection["source_infection_id"] == "virus_i1"
+    exposure = events(env, "VIRAL_EXPOSURE")[-1]
+    assert exposure["agent_tag"] == "a1" and exposure["probability"] == 1.0  # one unit, times two, capped
+    assert mechanic.health("a2") == "healthy"
+
+
+def test_incubating_hosts_shed_before_their_symptoms_and_masks_cut_the_shedding(tmp_path):
+    env, mechanic = make_env(
+        tmp_path, [(2, 2), (6, 6)],
+        {**AIR, "incubation_min": 2, "incubation_max": 2, "airborne_presymptomatic_days": 1},
+    )
+    env.seed_artifact((6, 6), "ppe", "mask", "", -1, to_inventory="a1", protection=0.5)
+    mechanic.infect(env, "a0", None, "test")
+    mechanic.infect(env, "a1", None, "test")
+    step(env)  # two silent steps left: outside the window
+    assert mechanic.state["air"] == {}
+    infos = step(env)  # one left: both shed, the masked one half as much, and neither feels anything yet
+    assert mechanic.health("a0") == "incubating" and "Health" not in infos["a0"]
+    assert mechanic.state["air"] == {"2,2": {"virus_i1": 1.0}, "6,6": {"virus_i2": 0.5}}
+
+
+def test_the_air_is_recorded_and_survives_a_checkpoint(tmp_path):
+    env, mechanic = make_env(tmp_path, [(2, 2)], AIR)
+    mechanic.infect(env, "a0", None, "test")
+    step(env)
+    step(env)
+    rows = [json.loads(line) for line in (tmp_path / "world_state.jsonl").read_text().splitlines()]
+    assert rows[0]["schema_version"] == 7
+    assert rows[1]["air"] == {"set": []}
+    assert rows[2]["air"] == {"add": [[2, 2, 1.0]], "del": []}
+    ckpt = env.get_state_ckpt()
+    restored, fresh = make_env(tmp_path / "second", [(2, 2)], AIR)
+    restored.set_state_ckpt(ckpt)
+    assert fresh.state["air"] == mechanic.state["air"] == {"2,2": {"virus_i1": 1.0}}
+
+
 def test_personas_follow_the_file_order_and_counts(tmp_path):
     personas = tmp_path / "personas.json"
     personas.write_text(json.dumps([
@@ -350,17 +423,21 @@ def test_bedridden_hosts_have_no_appetite(tmp_path):
     assert infos["a0"]["Health"] == BEDRIDDEN_NOTICE
 
 
-def test_runner_gives_the_personas_and_human_names_from_the_preset(tmp_path, monkeypatch):
+@pytest.mark.parametrize("preset, named, first", [
+    ("ebola", ["Ezekiel", "Amara", "Miriam", "Tendai"], "You are a religious leader."),
+    ("covid", ["Dale", "Rafael", "Lucia", "Wen"], "You are a skeptic."),
+])
+def test_runner_gives_the_personas_and_human_names_from_the_preset(tmp_path, monkeypatch, preset, named, first):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
     monkeypatch.setattr(runner_module, "LOGS_DIR", tmp_path)
     monkeypatch.setattr(runner_module, "LLMRouter", lambda **kw: types.SimpleNamespace(**kw))
-    cfg = compose("ebola", {"init_agents": 6, "min_agents": 0, "grid_size": 12, "exp_name": "ebola_runner_test",
-                            "scenario_options": {"health_centers_path": None}})
+    cfg = compose(preset, {"init_agents": 6, "min_agents": 0, "grid_size": 12, "exp_name": f"{preset}_runner_test",
+                           "scenario_options": {"health_centers_path": None}})
     runner = SimulationRunner(cfg)
     names = [runner.env.agent_names[f"being{i}"] for i in range(6)]
-    assert names[:4] == ["Ezekiel", "Amara", "Miriam", "Tendai"]
+    assert names[:4] == named
     assert names[4] not in ("being4", "") and names[5] not in ("being5", "")
-    assert "You are a religious leader." in runner.agents["being0"].system_prompt
+    assert first in runner.agents["being0"].system_prompt
     assert runner.agents["being4"].persona == ""
     assert runner.agents["being4"].system_prompt.count("You are a ") == runner.agents["being5"].system_prompt.count("You are a ")
 

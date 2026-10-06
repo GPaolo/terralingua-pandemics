@@ -27,6 +27,8 @@
   /* Recovered: worn as a ring on the dot / a dashed chart line, never a fill —
      no fill hue passes the floor against both blue and grey. */
   --recovered: #1ac9d6;
+  /* Infectious air: a violet haze over the cell, denser with the load. */
+  --air: #a67cf0;
 
   /* Categorical slots, fixed order. */
   --s1: #3987e5; /* blue   */
@@ -68,6 +70,7 @@
   --border: rgba(11, 11, 11, 0.1);
   --being: #898781;
   --recovered: #0a9ac0;
+  --air: #6a46c9;
   --s1: #2a78d6;
   --s2: #eb6834;
   --s3: #1baf7a;
@@ -276,6 +279,7 @@ footer.charts {
 .swatch.recovered { background: transparent; border: 2px solid var(--recovered); border-radius: 50%; }
 .swatch.infected { background: var(--status-critical); border-radius: 50%; }
 .swatch.incubating { background: var(--status-warning); border-radius: 50%; }
+.swatch.air { background: var(--air); opacity: 0.6; }
 
 /* Pointer events stay off while the tooltip follows the mouse -- it would
    flicker by capturing its own hover. Pinning (a cell click) turns them on so

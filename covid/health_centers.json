@@ -1,0 +1,10 @@
+[
+  {
+    "pose": [15, 15],
+    "radius": 1,
+    "heal_probability": 0.0,
+    "hazard_multiplier": 0.3,
+    "name": "Hospital",
+    "payload": "A hospital. Sick beings near it receive oxygen and care: they are far more likely to survive the sickness, but it does not cure. Recovery still takes its time."
+  }
+]

@@ -1,4 +1,4 @@
-"""Artifact types of the Ebola scenario: protective equipment, a health center, remains."""
+"""Artifact types of the pandemics scenario: protective equipment, a health center, remains."""
 
 from typing import Tuple
 

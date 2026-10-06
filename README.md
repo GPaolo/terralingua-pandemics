@@ -1,9 +1,9 @@
 # Pandemics
 
 Pandemics simulation scenario for [TerraLingua](https://github.com/cognizant-ai-lab/terralingua), a multi-agent simulation in which LLM-powered beings live on a shared grid.
-The scenario simulates the spread of a virus in a community of beings. The repo ships an Ebola preset: a WHO field worker and a health worker try to fight the outbreak by raising awareness and distributing Personal Protective Equipment (PPE), while a religious leader and a traditional healer push their own beliefs about the sickness.
+The scenario simulates the spread of a virus in a community of beings. The repo ships two presets. In the Ebola one, a WHO field worker and a health worker try to fight the outbreak by raising awareness and distributing Personal Protective Equipment (PPE), while a religious leader and a traditional healer push their own beliefs about the sickness. In the Covid one, the sickness also travels through the air the hosts leave behind and carriers pass it on before their symptoms; a public health officer and a nurse hand out masks and advice, while a skeptic and a wellness guru push back.
 
-The sickness spreads by contact, with incubation, protective equipment, health centers, remains and burials. In the case of Ebola, communal burials act as super-spreading events.
+The sickness spreads by contact and, when the preset turns it on, through the air, with incubation, protective equipment, health centers, remains and burials. In the case of Ebola, communal burials act as super-spreading events; in the case of Covid, crowded cells do.
 Most beings are told nothing about the sickness. A few personas, such as the health workers, know about it and may tell the others. The rest learn from their own symptoms, from funerals, and from each other.
 
 The repo also ships a viewer to follow a run, an analysis agent (the AI Anthropologist) to study the results, and the TerraLingua launcher, a web page that configures and starts runs.
@@ -24,10 +24,11 @@ cp .env.example .env        # put your model key there
 
 ## Run
 
-The scenario can simulate different viruses: each one is a preset. A disease is a folder at the top of the repository with a `preset.yaml` and the files it names. The repo ships `ebola/`. Run from this folder:
+The scenario can simulate different viruses: each one is a preset. A disease is a folder at the top of the repository with a `preset.yaml` and the files it names. The repo ships `ebola/` and `covid/`. Run from this folder:
 
 ```bash
 terralingua ebola                              # the Ebola preset, 20 beings, 200 days
+terralingua covid                              # the Covid preset: airborne, presymptomatic, masks, no burials
 terralingua ebola --max_ts 20 --init_agents 12 # any setting can be overridden
 terralingua --list                             # every preset found under this folder, plus the two built-in ones
 ```
@@ -43,13 +44,13 @@ The [TerraLingua launcher](https://github.com/GPaolo/terralingua_launcher) is a 
 terralingua-launcher --workdir .
 ```
 
-Pick the `ebola` preset, change settings in the form, edit the personas, the instructions or the artifacts, and launch. The page also starts the viewer and the anthropologist below with its "Open viewer" and "Open anthropologist" buttons.
+Pick the `ebola` or the `covid` preset, change settings in the form, edit the personas, the instructions or the artifacts, and launch. The page also starts the viewer and the anthropologist below with its "Open viewer" and "Open anthropologist" buttons.
 
 ## Layout
 
-- `ebola/`: one disease. `preset.yaml` holds every setting of the run: `run.scenario: pandemics` selects the package and `run.scenario_options` holds every sickness parameter. `personas.json` and `instructions.md` are named by the preset and read relative to it. `health_centers.json` is named by the `health_centers_path` option and read relative to the working directory.
+- `ebola/`, `covid/`: one folder per disease. `preset.yaml` holds every setting of the run: `run.scenario: pandemics` selects the package and `run.scenario_options` holds every sickness parameter. `personas.json` and `instructions.md` are named by the preset and read relative to it. `health_centers.json` is named by the `health_centers_path` option and read relative to the working directory.
 - `pandemics/`: the scenario package, common to every disease.
-  - `epidemic.py`: the `Epidemic` mechanic and its `EpidemicOptions`. Infection state lives in the mechanic and is saved with the world checkpoint.
+  - `epidemic.py`: the `Epidemic` mechanic and its `EpidemicOptions`. Infection state and the infectious air live in the mechanic and are saved with the world checkpoint.
   - `artifacts.py`: `ppe` (protective equipment), `health_center`, and `remains`. Beings cannot create them; the scenario seeds them.
   - `state_log.py`: writes the per-step world state file the two tools read.
   - `viewer/` and `anthropologist/`: the two tools described below.
@@ -66,8 +67,9 @@ The package also declares which options apply only when another option turns a r
 2. Then the being is feverish for `mobile_days` steps. It can still move and act. It passes the sickness on at `feverish_multiplier` times the base chance. From the first sick step it loses `energy_multiplier` minus one extra energy per step, on top of the normal drain. Over the sick period a share `case_fatality` of the sick die. The daily chance is derived from it and rises with the number of sick days, so deaths come late in the sickness.
 3. After `mobile_days` steps it is bedridden. It cannot move or take energy, and food under it stays untouched. After `infection_duration` sick steps it recovers and is immune.
 4. Transmission: each step, every being within `infection_radius` of a sick host or of unburied remains catches it with chance `infection_probability`, times the host factor (`feverish_multiplier` for a feverish host, 1 for a bedridden host or for remains), times the being's protective equipment factor. Giving energy, taking energy, and handing over an artifact reach only a being on an adjacent cell. Each is a contact: with a sick host it is an extra exposure at `contact_multiplier` times the base chance, times the host factor.
-5. A health center heals each infected being within its radius, incubating or sick, with its `heal_probability` per step, and multiplies the daily death chance of the sick ones by its `hazard_multiplier`.
-6. A being that dies sick leaves remains at the end of the following step. Beings within `funeral_announcement_radius` hear of the death and where the remains lie. A being next to remains may bury them. The burier takes one exposure at `burial_infection_multiplier` times the base chance, and every other being on a cell next to the remains takes one at `burial_bystander_multiplier`, whether or not it meant to attend. Both come on top of the exposure the remains give each step. Remains spread for `remains_lifespan` minus one steps, then vanish.
+5. With `airborne` on, the air of each cell holds a particle load. Each step the load decays to `airborne_decay` of itself, every being standing in loaded air catches it with chance `infection_probability` times `airborne_multiplier` times the load, times its protective equipment factor, and then every shedding host adds to the air of every cell within `airborne_radius` of it: 1 unit when bedridden, `feverish_multiplier` while it can still move, times its own protective equipment factor. Incubating hosts shed during their last `airborne_presymptomatic_days` steps. So the air reaches further than rule 4, stays after the host has left, and builds up where hosts crowd. An infection from the air is charged to one of the infections in that air, drawn by load share, so the transmission chain stays exact.
+6. A health center heals each infected being within its radius, incubating or sick, with its `heal_probability` per step, and multiplies the daily death chance of the sick ones by its `hazard_multiplier`.
+7. A being that dies sick leaves remains at the end of the following step. Beings within `funeral_announcement_radius` hear of the death and where the remains lie. A being next to remains may bury them. The burier takes one exposure at `burial_infection_multiplier` times the base chance, and every other being on a cell next to the remains takes one at `burial_bystander_multiplier`, whether or not it meant to attend. Both come on top of the exposure the remains give each step. Remains spread for `remains_lifespan` minus one steps, then vanish.
 
 The health centers and the protective equipment are placed at the end of step 0.
 
@@ -75,7 +77,7 @@ The health centers and the protective equipment are placed at the end of step 0.
 
 Next to the files every TerraLingua run writes, the mechanic adds:
 
-- `world_state.jsonl`: one line per step with each being's position, energy, remaining time, inventory size and infection status, the food cells and the artifacts on the map. The format is documented in `pandemics/state_log.py`. Grid worlds only. The grid size is written once, so keep `dynamic_grid_scaling: false`, as the preset does.
+- `world_state.jsonl`: one line per step with each being's position, energy, remaining time, inventory size and infection status, the food cells, the artifacts on the map and the infectious air per cell. The format is documented in `pandemics/state_log.py`. Grid worlds only. The grid size is written once, so keep `dynamic_grid_scaling: false`, as the preset does.
 - World log events: `VIRAL_INFECTION` (with `infection_id`, `source_kind`, `source_infection_id`, `incubation`), `VIRAL_EXPOSURE` (one line per chance to catch the sickness, with `probability`, `protection`, `infected`), `VIRAL_HEALED`, `BURIAL` (with `remains`, `attendees`, `infected`), and `IDENTITY` (a being's name, role and persona). Deaths from the sickness are `AGENT_DIED` events with `reason: sickness`.
 
 ## Watch a run
@@ -87,7 +89,7 @@ python -m pandemics.viewer                      # serves logs/ on http://127.0.0
 python -m pandemics.viewer --logs /data/runs --port 9999
 ```
 
-It shows the world map with food, artifacts, beings and their infection status, a being inspector with energy, time left, inventory and genome, the action and the private memory behind it, the chat feed, the artifacts, and charts of population, sickness, artifacts and model spend. The transmission chain and an R0 estimate appear for runs with infections. The viewer reads no pickle, so a run copied from elsewhere can be opened without executing its contents.
+It shows the world map with food, artifacts, infectious air, beings and their infection status, a being inspector with energy, time left, inventory and genome, the action and the private memory behind it, the chat feed, the artifacts, and charts of population, sickness, artifacts and model spend. The transmission chain and an R0 estimate appear for runs with infections. The viewer reads no pickle, so a run copied from elsewhere can be opened without executing its contents.
 
 ## Analyze a run
 
@@ -120,7 +122,7 @@ Model-written code runs in a guarded worker process: imports outside a short all
 
 ## Add a disease
 
-Copy `ebola/` to `<name>/`. In its `preset.yaml` set `name:` and `exp_name:` to the new name and point `health_centers_path` at `<name>/health_centers.json`, then change the `scenario_options`, the world settings and the personas, and run `terralingua <name>`. The package is general: every parameter of the sickness is a preset value.
+Copy `ebola/` or `covid/` to `<name>/`. In its `preset.yaml` set `name:` and `exp_name:` to the new name and point `health_centers_path` at `<name>/health_centers.json`, then change the `scenario_options`, the world settings and the personas, and run `terralingua <name>`. The package is general: every parameter of the sickness is a preset value, and `airborne` and `burials` turn whole routes on or off.
 
 ## Tests
 

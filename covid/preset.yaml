@@ -1,6 +1,6 @@
-name: ebola
-description: Ebola-calibrated contact sickness with incubation on a torus grid, with
-  roles, protective equipment, a health center, remains, and burials.
+name: covid
+description: Covid-calibrated airborne sickness with presymptomatic spread on a torus
+  grid, with roles, masks, a hospital, and no burials.
 config:
   run:
     scenario: pandemics
@@ -8,29 +8,30 @@ config:
       init_infected: 2
       outbreak_step: 0
       incubation_min: 2
-      incubation_max: 15
-      infection_duration: 13
-      mobile_days: 4
-      feverish_multiplier: 0.3
+      incubation_max: 7
+      infection_duration: 10
+      mobile_days: 7
+      feverish_multiplier: 1.0
       infection_radius: 1
-      infection_probability: 0.5
-      contact_multiplier: 1.8
-      airborne: false
-      energy_multiplier: 6
-      case_fatality: 0.5
-      ppe_protection: 0.1
+      infection_probability: 0.2
+      contact_multiplier: 1.2
+      airborne: true
+      airborne_multiplier: 0.5
+      airborne_decay: 0.5
+      airborne_radius: 2
+      airborne_presymptomatic_days: 2
+      energy_multiplier: 2
+      case_fatality: 0.02
+      ppe_protection: 0.3
       ppe_role: health_worker
       ppe_per_worker: 20
-      burials: true
-      burial_infection_multiplier: 1.9
-      burial_bystander_multiplier: 1.5
+      burials: false
       funeral_announcements: true
-      funeral_announcement_radius: 10
-      funeral_mourning_days: 1
-      remains_lifespan: 10
-      health_centers_path: ebola/health_centers.json
-    exp_name: ebola
-    exp_description: Ebola-calibrated contact sickness with incubation
+      funeral_announcement_radius: -1
+      remains_lifespan: 1
+      health_centers_path: covid/health_centers.json
+    exp_name: covid
+    exp_description: Covid-calibrated airborne sickness with presymptomatic spread
     max_ts: 200
     seed: 1
     max_parallel_workers: 20

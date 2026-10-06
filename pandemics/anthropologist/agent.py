@@ -133,7 +133,13 @@ and are immune.
 Every being within infection_radius of a sick host or of unburied remains has
 a chance infection_probability per day to catch it; giving or taking energy and
 handing over artifacts are contacts with contact_multiplier times that chance,
-times the host factor.
+times the host factor. With airborne on, hosts also load the air of every
+cell within airborne_radius of them with particles (incubating ones during
+their last airborne_presymptomatic_days days): the load decays to
+airborne_decay of itself each day, and a being standing in loaded air has a
+chance infection_probability times airborne_multiplier times the load. Such an
+infection has source_kind "air:<infection_id>" and is charged to that
+infection; the world_state file holds the air per cell.
 Protective equipment (ppe artifacts in the inventory) multiplies a being's
 chance by ppe_protection (<1); protection does not stack. A health center heals
 infected beings within its radius, incubating or sick, with heal_probability
