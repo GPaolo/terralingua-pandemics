@@ -65,4 +65,4 @@ config:
     reproduction_cost: -1
     artifact_creation_cost: 0
     max_artifact_tokens: 200
-    max_message_length: 50
+    max_message_length: 70

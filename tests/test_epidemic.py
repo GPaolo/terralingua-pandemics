@@ -423,23 +423,27 @@ def test_bedridden_hosts_have_no_appetite(tmp_path):
     assert infos["a0"]["Health"] == BEDRIDDEN_NOTICE
 
 
-@pytest.mark.parametrize("preset, named, first", [
-    ("ebola", ["Ezekiel", "Amara", "Miriam", "Tendai"], "You are a religious leader."),
-    ("covid", ["Dale", "Rafael", "Lucia", "Wen"], "You are a skeptic."),
+@pytest.mark.parametrize("preset, named, first, personas", [
+    ("ebola", [], "You are a religious leader.", 8),  # the ebola file names nobody: Faker names all
+    ("covid", ["Dale", "Rafael", "Lucia", "Wen"], "You are a skeptic.", 4),
 ])
-def test_runner_gives_the_personas_and_human_names_from_the_preset(tmp_path, monkeypatch, preset, named, first):
+def test_runner_gives_the_personas_and_human_names_from_the_preset(tmp_path, monkeypatch, preset, named, first, personas):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
     monkeypatch.setattr(runner_module, "LOGS_DIR", tmp_path)
     monkeypatch.setattr(runner_module, "LLMRouter", lambda **kw: types.SimpleNamespace(**kw))
-    cfg = compose(preset, {"init_agents": 6, "min_agents": 0, "grid_size": 12, "exp_name": f"{preset}_runner_test",
+    n = personas + 2
+    cfg = compose(preset, {"init_agents": n, "min_agents": 0, "grid_size": 12, "exp_name": f"{preset}_runner_test",
                            "scenario_options": {"health_centers_path": None}})
     runner = SimulationRunner(cfg)
-    names = [runner.env.agent_names[f"being{i}"] for i in range(6)]
-    assert names[:4] == named
-    assert names[4] not in ("being4", "") and names[5] not in ("being5", "")
+    names = [runner.env.agent_names[f"being{i}"] for i in range(n)]
+    assert names[:len(named)] == named
+    assert all(name and not name.startswith("being") for name in names)
+    assert len(set(names)) == n
     assert first in runner.agents["being0"].system_prompt
-    assert runner.agents["being4"].persona == ""
-    assert runner.agents["being4"].system_prompt.count("You are a ") == runner.agents["being5"].system_prompt.count("You are a ")
+    assert runner.agents[f"being{personas - 1}"].persona != ""
+    unprompted, other = runner.agents[f"being{personas}"], runner.agents[f"being{personas + 1}"]
+    assert unprompted.persona == ""
+    assert unprompted.system_prompt.count("You are a ") == other.system_prompt.count("You are a ")
 
 
 def test_case_fatality_is_the_share_that_dies_over_the_sick_period(tmp_path):

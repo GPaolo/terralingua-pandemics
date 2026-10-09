@@ -1,7 +1,7 @@
 # Pandemics
 
 Pandemics simulation scenario for [TerraLingua](https://github.com/cognizant-ai-lab/terralingua), a multi-agent simulation in which LLM-powered beings live on a shared grid.
-The scenario simulates the spread of a virus in a community of beings. The repo ships two presets. In the Ebola one, a WHO field worker and a health worker try to fight the outbreak by raising awareness and distributing Personal Protective Equipment (PPE), while a religious leader and a traditional healer push their own beliefs about the sickness. In the Covid one, the sickness also travels through the air the hosts leave behind and carriers pass it on before their symptoms; a public health officer and a nurse hand out masks and advice, while a skeptic and a wellness guru push back.
+The scenario simulates the spread of a virus in a community of beings. The repo ships two presets. In the Ebola one, a WHO field worker, a health worker who hands out Personal Protective Equipment (PPE), and a religious leader and a traditional healer who side with them try to contain the outbreak, while another religious leader denies the epidemic, another healer sells a false cure, a market trader calls the sickness an invention, and a government officer tells everyone the sick cannot be saved. In the Covid one, the sickness also travels through the air the hosts leave behind and carriers pass it on before their symptoms; a public health officer and a nurse hand out masks and advice, while a skeptic and a wellness guru push back.
 
 The sickness spreads by contact and, when the preset turns it on, through the air, with incubation, protective equipment, health centers, remains and burials. In the case of Ebola, communal burials act as super-spreading events; in the case of Covid, crowded cells do.
 Most beings are told nothing about the sickness. A few personas, such as the health workers, know about it and may tell the others. The rest learn from their own symptoms, from funerals, and from each other.
@@ -57,7 +57,7 @@ Pick the `ebola` or the `covid` preset, change settings in the form, edit the pe
   - `calibrate_r0.py`: the calibration script described below.
 - `tests/`: scripted-world tests. No test calls a model.
 
-Each personas entry has a `persona` text, an optional `name`, a `count`, and a `role`. The first beings created get them in file order; every other being gets a human first name and no persona. Beings with the role named by `ppe_role` start with protective equipment. The instructions file is empty on purpose: no being gets a scenario-wide text about the sickness, so what the few who know about it tell the others comes from their persona.
+Each personas entry has a `persona` text, an optional `name`, a `count`, and a `role`. The first beings created get them in file order; every other being gets no persona. Every being whose entry gives no name, and every being without an entry, gets a human first name. Beings with the role named by `ppe_role` start with protective equipment. The instructions file is empty on purpose: no being gets a scenario-wide text about the sickness, so what the few who know about it tell the others comes from their persona.
 
 The package also declares which options apply only when another option turns a rule on, for example the burial multipliers without burials. A run that sets such an option gets a warning at start, and `python -m terralingua.config evaluate --preset ebola` lists every option with its state.
 
